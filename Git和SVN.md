@@ -65,5 +65,15 @@ SVN原理上只关心文件内容的具体差异。每次记录有哪些文件�
 - 切换用户为git：`su git`
 - 在home/git 下 创建一个新的仓库文件夹:`mkdir -p /home/git/myrepo/`
 - 初始化本地仓库(没有工作目录的纯版本仓库)：`git init --bare`
-- 将本地仓库推送到服务器
+- 将本地仓库推送到服务器：URL:`ssh://git@47.xxx.xxx.xxx/home/git/myrepo`
+- 当然也可以再克隆下来
+
+## 5. 分支
+- 创建branch1分支：`git branch branch1`
+- 显示分支列表：`git branch`
+- 切换到branch1分支：`git checkout branch1`
+- 将branch1合并到master：`git merge branch1`
+- 合并后删除branch1分支：`git branch -d branch1`
+
+
 # SVN
