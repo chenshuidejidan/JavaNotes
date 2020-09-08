@@ -30,10 +30,30 @@ SVN原理上只关心文件内容的具体差异。每次记录有哪些文件�
 # Git
 
 ## 1. 本地仓库命令
+- 配置git：`git config --global user.name "sssss"`  
+`git config --global user.email 123456@qq.com` 
 - 创建本地仓库： `git init`
-- 将文件添加到暂存区：
+- 查看本地仓库状态：`git status`
+- 将文件添加到暂存区：`git add file`，可以使用`git add .` 将所有修改的文件进行添加
+- 删除暂存区文件：`git rm file`
+- 提交到本地仓库：`git commit -m “提交描述”`
+- 将所有修改提交：`git commit -am “提交描述”`，将工作区所有文件添加到暂存区并提交
+- 撤销commit：`git reset --soft HEAD^`，`HEAD^`等价于`HEAD~1`，两次commit都想撤销可以使用`HEAD~2`
+  - 可选参数：
+  - --mixed：不删除工作空间改动代码，撤销commit，并且撤销 git add 操作，为默认参数
+  - --soft： 不删除工作空间改动代码，撤销commit，不撤销git add 操作
+  - --hard： 删除工作空间改动代码，撤销commit，撤销git add ，恢复工作空间到上一次commit的状态
+- 克隆仓库：`git clone git@github.com:xxxx.git`，完整克隆，可以直接看到修改记录
+
 
 ## 2. 本地仓库推送到远程ssh
+- ssh方式使用密钥认证，不用输入账号密码了
 - 生成ssh密钥：`ssh-keygen -t rsa`，默认生成位置为：`C:\Users\xxx\.ssh`，将公钥复制到github个人的SSH and GPG keys
 - 建立连接：`git remote add origin git@github.com:xxxx.git`
+- pull：`git pull --rebase origin master`
+- push：`git push -u origin master`
+
+## 3. 本地仓库推送到远程https
+- 建立连接：`git remote add origin https://github.com/xxxx.git`
+- pull：`git pull --rebase origin master`
 - push：`git push -u origin master`
