@@ -58,4 +58,12 @@ SVN原理上只关心文件内容的具体差异。每次记录有哪些文件�
 - pull：`git pull --rebase origin master`
 - push：`git push -u origin master`
 
+## 4. 服务器搭建私有Git
+- 安装Git
+- 创建Git目录：`adduser -r -c 'git version control' -d /home/git -m git` 用户名为git
+- 修改密码：`passwd xxx`
+- 切换用户为git：`su git`
+- 在home/git 下 创建一个新的仓库文件夹:`mkdir -p /home/git/myrepo/`
+- 初始化本地仓库(没有工作目录的纯版本仓库)：`git init --bare`
+- 将本地仓库推送到服务器
 # SVN
