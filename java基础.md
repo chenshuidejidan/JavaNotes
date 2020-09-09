@@ -49,7 +49,7 @@ Scanner是一个扫描器，它扫描数据都是去内存中一块缓冲区中�
 
 ~~~java
     int a = sc.nextInt();
-    input.nextLine();//提前吞掉空格，防止后面吞掉
+    sc.nextLine();//提前吞掉空格，防止后面吞掉
     String s = sc.nextLine();
 ~~~
 
