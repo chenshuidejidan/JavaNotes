@@ -4,24 +4,30 @@
 ![JVM](https://img-blog.csdnimg.cn/20200622135505663.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3NpbmF0XzQyNDgzMzQx,size_1,color_FFFFFF,t_70)
 
 - **JVM与Java独立不相关，其他语言也可以通过特定的编译生成class字节码文件，在JVM上运行** 
-- JVM是一种规范，是虚构出来的一台计算机：字节码指令集(汇编语言)、内存管理(堆、栈、方法区等)
-- 常见JVM的实现：HotSpot(oracle官方)、Jrockit(BEA，曾号称世界上最快的JVM，后被oracle收购，合并到hotspot)、J9(IBM)、Microsoft VM、TaobaoVM(HotSpot的深度定制版)、LiquidVM(直接针对硬件)、azul zing(最新垃圾回收的业界标杆)
+
+- **JVM是一种规范**，是虚构出来的一台计算机：字节码指令集(汇编语言)、内存管理(堆、栈、方法区等)
+
+- **常见JVM的实现：** HotSpot(oracle官方)、Jrockit(BEA，曾号称世界上最快的JVM，后被oracle收购，合并到hotspot)、J9(IBM)、Microsoft VM、TaobaoVM(HotSpot的深度定制版)、LiquidVM(直接针对硬件)、azul zing(最新垃圾回收的业界标杆)
 
 - JDK = JRE + development kit
 - JRE = JVM + core lib
+
+![wOvzYF.png](https://s1.ax1x.com/2020/09/22/wOvzYF.png)
+
+
 # 2. Class File format
 - 魔数：每个Class文件的头4个字节被成为魔数(Magic Number)，它的作用是确定这个文件是为一个能被JVM接收的Class文件：0xCAFEBABE
 - 版本号：紧接着魔数的4个字节存储的是Class文件的版本号。前两个字节是次版本号(Minor Version)，后两个字节是主版本号(Major Version)，Java版本号从45开始，每个大版本加1(jdk1.0~1.1使用45.0~45.1)，高级版本的JDK能向下兼容以前版本的Class文件，但不能运行以后版本的Class文件。虚拟机必须拒绝执行超过其版本号的Class文件   
 （IDEA可以安装BinEd插件查看字节码，安装jclasslib插件分析class文件的内容）
 - 常量池：版本号之后是常量池入口，通常是占据Class文件空间最大的数据项目之一，是Class文件中第一个出现的表类型数据项目。入口需要放置一项u2类型的数据，代表常量池容量计数值(constant_pool_count)。第0个常量空出来是为了后面某些指向常量池的索引值的数据在特定情况下需要表达”不引用任何一个常量池项目“的含义
-
+- 访问标志：常量池之后，两个字节，用于识别类或者接口层次的访问信息。包括：这个Class是类还是接口、是否是public、是否是abstract、类是否final等
 ![class文件结构](https://s1.ax1x.com/2020/09/22/wLPUfO.png)
 
 
 
 
-# 3. Loading Linking Initializing
-- **Class文件加载过程：** 硬盘上的class文件 -> loading -> linking -> initializing -> gc
+# 3. 类的生命周期
+- **Class文件加载过程：** 硬盘上的class文件 -> loading -> linking （verfication -> preparation -> resolution） -> initializing -> gc
 
 ~~~java
 public class Test {
@@ -46,6 +52,17 @@ class T {
 到Initializing阶段时被赋予初始值：t=new T()，此时count依然是0，所以count++ 值为1；然后count又被赋予初始值2
 
 ## 3.1 Loading
+### 3.1.1 什么是类的加载
+- 类的加载指的是**将类的.class文件中的二进制数据读入到内存中**，将其放在运行时数据区的**方法区**内，然后在堆中**创建一个java.lang.Class对象**，用来封装方法区的数据结构。类的加载的**最终产物是堆中的Class对象**，Class对象封装了类在方法区的数据结构，并且向Java程序员提供了访问方法区内的数据结构的接口
+- 何时加载：JVM规范允许类加载器在预料**某个类将要被使用就预先加载**(并不是要等到首次使用才加载)，如果预加载出现错误，必须**在程序首次主动使用该类时才报告错误**(LinkageError)，如果该类一直未被程序主动使用，则类加载器不会报错
+
+### 3.1.2 加载.class文件的方式
+- 从本地系统中直接加载
+- 通过网络下载.class文件
+- 从zip，jar等归档文件中加载.class文件
+- 从专有数据库中提取.class文件
+- 将Java源文件动态编译为.class文件
+
 
 ## 3.2 Linking
 - Linking分为三个步骤：格式校验verfication、静态变量赋予默认值preparation、解析resolution
