@@ -1523,12 +1523,11 @@ public class Stack<E>{
 public interface Queue<E> extends Collection<E> {
     
     boolean add(E e);       //往队列插入元素，如果出现异常会抛出异常 
-    boolean offer(E e);     //往队列插入元素，如果出现异常则返回false
-
-    E remove();             //移除队列元素，如果出现异常会抛出异常
-    E poll();               //移除队列元素，如果出现异常则返回null
-
+    E remove();             //移除队列元素，如果出现异常会抛出异常    
     E element();            //获取队列头部元素，如果出现异常会抛出异常
+
+    boolean offer(E e);     //往队列插入元素，如果出现异常则返回false
+    E poll();               //移除并返回队列元素，如果出现异常则返回null
     E peek();               //获取队列头部元素，如果出现异常则返回null
 }
 ~~~
@@ -1702,6 +1701,7 @@ public class ArrayDeque<E> extends AbstractCollection<E>
 
 
 ### 7.2 HashMap 
+![hashMap底层结构](https://s1.ax1x.com/2020/09/28/0EHouV.png)
 - 特点： 无序，允许null，非同步   
 - 底层是: 数组+散列表+红黑树   
 - 初始容量为16，最大容量 2^30， 默认装载因子为 0.75
@@ -1709,11 +1709,194 @@ public class ArrayDeque<E> extends AbstractCollection<E>
 - `UNTREEIFY_THRESHOLD = 6` ： 树形结构转链表的阈值，默认为 6
 - `MIN_TREEIFY_CAPARITY = 64` ： 转树形结构的最小散列表容量
 
-
-
 - 构造方法：
 - `public HashMap(int initialCapacity, float loadFactor)`       
 - `public HashMap()`
+#### 7.2.1 哈希Map的设计中需要解决的几个问题
+- 索引id的计算时，使用hashcode值和数组长度进行位与操作，这就需要数组长度是2的倍数，那么这个数组大小如何初始化？
+- 数组越小碰撞越多，数组越大碰撞越少，如何进行时间和空间的取舍？
+- 碰撞时的链表如何进行优化？
+- 随着元素的添加，数组长度不足需要扩容，怎么把原来的元素拆分到新的位置上去？
+
+#### 7.2.2 扰动函数
+- HashMap存放元素时有一个预处理，也就是hash值的扰动函数，将哈希值右移16位(长度的一半)后与原哈希值进行异或，得到新的哈希值。**扰动函数使用了哈希值的高半区和低半区做异或，混合原始哈希码的高位和低位，以此来加大低位区的随机性**
+- 此处 `>>>` 表示无符号右移，高位补0
+~~~java
+static final int hash(Object key) {
+    int h;
+    return (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
+}
+~~~
+- 然后再将扰动后的哈希值与数组长度进行取模(与操作)
+![0EISRP.jpg](https://s1.ax1x.com/2020/09/28/0EISRP.jpg)
+
+#### 7.2.2 初始化容量
+- 散列数组需要一个 $2^n-1$ 的长度，才能在减1的时候出现 $0111$ 这样的值，**方便取模（因为 % 和 / 比 & 慢了10倍左右）**
+- 首先计算阈值，就是要寻找比初始值大的，最接近的2的幂
+~~~java
+static final int tableSizeFor(int cap) {
+    int n = cap - 1;
+    n |= n >>> 1;
+    n |= n >>> 2;
+    n |= n >>> 4;
+    n |= n >>> 8;
+    n |= n >>> 16;
+    return (n < 0) ? 1 : (n >= MAXIMUM_CAPACITY) ? MAXIMUM_CAPACITY : n + 1;
+}
+~~~
+- 当各位都被1填充后，再加1就是所求的2的幂了
+![0EHVmT.jpg](https://s1.ax1x.com/2020/09/28/0EHVmT.jpg)
+
+#### 7.2.3 负载因子
+- 默认负载因子为 0.75
+~~~java
+static final float DEFAULT_LOAD_FACTOR = 0.75f;
+~~~
+- 负载因子是0.75的时候，空间利用率比较高，而且避免了相当多的Hash冲突，使得底层的链表或者是红黑树的高度比较低，提升了空间效率
+- 同时0.75对于容量16来说计算结果刚好是整数，之后扩容后也是，同时接近理论值 $ln2$
+
+#### 7.2.4 扩容
+~~~java
+    void addEntry(int hash, K key, V value, int bucketIndex) {
+        if ((size >= threshold) && (null != table[bucketIndex])) {
+            //当size大于等于某一个阈值thresholdde时候且该桶并不是一个空桶；
+            //因为size 已经大于等于阈值了，说明Entry数量较多，哈希冲突严重
+            //若该Entry对应的桶不是一个空桶，这个Entry的加入必然会把原来的链表拉得更长，因此需要扩容
+            //若对应的桶是一个空桶，那么此时还没有必要扩容。
+            resize(2 * table.length);//将容量扩容为原来的2倍
+            hash = (null != key) ? hash(key) : 0;
+            bucketIndex = indexFor(hash, table.length);//扩容后的，该hash值对应的新的桶位置
+        }
+
+        createEntry(hash, key, value, bucketIndex);//在指定的桶位置上，创建一个新的Entry
+    }
+~~~
+- **扩容时机：** 当map中包含的`Entry`的数量大于等于`threshold = loadFactor * capacity`的时候，**且新建的Entry刚好落在一个非空的桶上**，此刻触发扩容机制，将其容量扩大为2倍(2倍保持长度可以与哈希值进行与操作来计算位置，因为 % 和 / 比 & 慢了10倍左右)
+- **扩容算法：** 扩容时计算出新的容量和阈值 `newCap, newThr`，newCap用于创建新的数组桶 `new Node[newCap]`，随着扩容后，原来那些因为哈希碰撞存放成链表和红黑树的元素，都需要进行拆分存放到新的位置中。
+
+#### 7.2.5 put操作
+1. 进行哈希值的扰动，获取新的哈希值
+2. 判断table 是否为空，或者长度是否为0，是则 resize 扩容，这次resize只是起一个初始化的作用
+3. 根据哈希值计算再table中的索引`i = (n - 1) & hash`，如果 `table[i]==null` 则直接添加新的节点到tbale[i]
+4. 如果 `table[i]!=null` ，则判断 table[i] 的头节点是否欲插入节点相同，有则直接覆盖value
+5. 如果table[i]中没有相同节点，则判断是不是红黑树节点，如果是红黑树节点，则在红黑树中添加此Entry
+6. 如果不是红黑树，遍历链表，统计长度，同时判断每个节点是否和欲插入节点相同，是则直接覆盖，否则插入到尾部，然后判断链表长度是否超过8，如果超过8则转为红黑树存储
+7. 最后判断是否超过阈值`threshold`，超过则扩容
+8. treeifyBin,是一个链表转树的方法，但不是所有的链表长度为8后都会转成树，还需要判断存放key值的数组桶长度是否小于64 MIN_TREEIFY_CAPACITY。如果小于则需要扩容，扩容后链表上的数据会被拆分散列的相应的桶节点上，也就把链表长度缩短了
+~~~java
+public V put(K key, V value) {
+    return putVal(hash(key), key, value, false, true);
+}
+
+final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
+               boolean evict) {
+    Node<K,V>[] tab; Node<K,V> p; int n, i;
+    // 初始化桶数组 table，table 被延迟到插入新数据时再进行初始化
+    if ((tab = table) == null || (n = tab.length) == 0)
+        n = (tab = resize()).length;
+    // 如果桶中不包含键值对节点引用，则将新键值对节点的引用存入桶中即可
+    if ((p = tab[i = (n - 1) & hash]) == null)
+        tab[i] = newNode(hash, key, value, null);
+    else {
+        Node<K,V> e; K k;
+        // 如果键的值以及节点 hash 等于链表中的第一个键值对节点时，则将 e 指向该键值对
+        if (p.hash == hash &&
+            ((k = p.key) == key || (key != null && key.equals(k))))
+            e = p;
+            
+        // 如果桶中的引用类型为 TreeNode，则调用红黑树的插入方法
+        else if (p instanceof TreeNode)  
+            e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
+        else {
+            // 对链表进行遍历，并统计链表长度
+            for (int binCount = 0; ; ++binCount) {
+                // 链表中不包含要插入的键值对节点时，则将该节点接在链表的最后
+                if ((e = p.next) == null) {
+                    p.next = newNode(hash, key, value, null);
+                    // 如果链表长度大于或等于树化阈值，则进行树化操作
+                    if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
+                        treeifyBin(tab, hash);
+                    break;
+                }
+                
+                // 条件为 true，表示当前链表包含要插入的键值对，终止遍历
+                if (e.hash == hash &&
+                    ((k = e.key) == key || (key != null && key.equals(k))))
+                    break;
+                p = e;
+            }
+        }
+        
+        // 判断要插入的键值对是否存在 HashMap 中
+        if (e != null) { // existing mapping for key
+            V oldValue = e.value;
+            // onlyIfAbsent 表示是否仅在 oldValue 为 null 的情况下更新键值对的值
+            if (!onlyIfAbsent || oldValue == null)
+                e.value = value;
+            afterNodeAccess(e);
+            return oldValue;
+        }
+    }
+    ++modCount;
+    // 键值对数量超过阈值时，则进行扩容
+    if (++size > threshold)
+        resize();
+    afterNodeInsertion(evict);
+    return null;
+}
+~~~
+
+#### 7.2.6 链表和红黑树的互转
+- JDK1.8以前的设计只是采用链表的方式处理冲突，链表越长性能越差，JDK1.8开始**当链表长度大于8，并且桶容量大于64时**，将链表转为红黑树结构，以此让定位元素的时间复杂度接近O(logn)。
+- **链表转红黑树的过程中，记录了原有链表的顺序**，这样当红黑树转链表时直接把TreeNode转换为Node即可，转换条件是红黑树节点数少于5
+- 关于更多红黑树的信息见算法和数据结构
+![链表转红黑树](https://s1.ax1x.com/2020/09/28/0VBuOx.jpg)
+#### 7.2.7 get操作
+- 扰动函数
+- 计算下标
+- 确定桶组下标的位置，接下来就是对红黑树和链表进行查找和遍历操作了
+~~~java
+public V get(Object key) {
+    Node<K,V> e;
+    // 同样需要经过扰动函数计算哈希值
+    return (e = getNode(hash(key), key)) == null ? null : e.value;
+}
+
+final Node<K,V> getNode(int hash, Object key) {
+    Node<K,V>[] tab; Node<K,V> first, e; int n; K k;
+    // 判断桶数组的是否为空和长度值
+    if ((tab = table) != null && (n = tab.length) > 0 &&
+        // 计算下标，哈希值与数组长度-1
+        (first = tab[(n - 1) & hash]) != null) {
+        if (first.hash == hash && // always check first node
+            ((k = first.key) == key || (key != null && key.equals(k))))
+            return first;
+        if ((e = first.next) != null) {
+            // TreeNode 节点直接调用红黑树的查找方法，时间复杂度O(logn)
+            if (first instanceof TreeNode)
+                return ((TreeNode<K,V>)first).getTreeNode(hash, key);
+            // 如果是链表就依次遍历查找
+            do {
+                if (e.hash == hash &&
+                    ((k = e.key) == key || (key != null && key.equals(k))))
+                    return e;
+            } while ((e = e.next) != null);
+        }
+    }
+    return null;
+}
+~~~
+
+#### 7.2.8 HashMap的遍历顺序
+KeySet是遍历是无序的，但每次使用不同方式遍历包括keys.iterator()，它们遍历的结果是固定的     
+遍历顺序主要有三种：链表的顺序，红黑树的顺序，红黑树降为链表的顺序
+- 全链表时，按链表顺序依次访问
+![链表的顺序](https://s1.ax1x.com/2020/09/28/0V0aoF.jpg)
+- 当链表过长转为红黑树时，树根会移动到数组头部，但其他顺序依然按链表顺序
+![红黑树的顺序](https://s1.ax1x.com/2020/09/28/0V0wi4.jpg)
+- 当红黑树退化为链表后，根节点回到原本位置
+![退化为链表的顺序](https://s1.ax1x.com/2020/09/28/0V0UdU.jpg)
+
 ### 7.3 HashTable 
 - 和HashMap实现基本相同，但线程安全，不允许 key 和 value 为 null，过时的类，需要线程安全时用`ConcurrentHashMap`即可
 
