@@ -94,10 +94,10 @@ public class Singleton {
 如果线程A在第一步时，线程B来了，判断instance!=null，于是直接返回了count=0的instance，发生了错误
 
 - 其实`instance = new Singleton()` 可以拆分成三部分：
-   - a. `memory =allocate();`分配对象的内存空间
-   - b.`ctorInstance(memory);`在对象地址上初始化一个singleton对象
-   - c.`instance =memory;` 将singleton引用指向对象地址； 
-如果指令重排时，bc顺序反了，可能会导致某个线程获得第一个线程未初始化完毕的对象
+ - a.`new #2 <T>`分配对象的内存空间，半初始化对象
+ - b.`invokespecial #3 <T.<init>>` 初始化
+ - c.`astore_1` 将引用指向对象的地址        
+- a—>b—>c顺序执行不会有什么问题，但是如果JVM和CPU把指令顺序优化为a—>c—>b，当执行完a,c后，可能另一个线程在第一次判断singleton=null，但此时不为空了(已被赋予默认值)，不用进入synchroniezd，于是就**将未初始化完毕的instance对象返回**了(JVM部分有讲解)
 ### 3.2.3 resolution
 静态解析
 
