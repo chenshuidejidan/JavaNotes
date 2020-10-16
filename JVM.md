@@ -93,19 +93,44 @@ public class Singleton {
 - 第二步在Initializing初始化时才被赋予初始值count=1000
 如果线程A在第一步时，线程B来了，判断instance!=null，于是直接返回了count=0的instance，发生了错误
 
+- **volatile防止该变量初始化时指令重排**，确保引用指向内存前实例初始化完毕，而可见性已经由synchronized保证了(https://blog.csdn.net/FU250/article/details/79721197)     
 - 其实`instance = new Singleton()` 可以拆分成三部分：
- - a.`new #2 <T>`分配对象的内存空间，半初始化对象
- - b.`invokespecial #3 <T.<init>>` 初始化
- - c.`astore_1` 将引用指向对象的地址        
-- a—>b—>c顺序执行不会有什么问题，但是如果JVM和CPU把指令顺序优化为a—>c—>b，当执行完a,c后，可能另一个线程在第一次判断singleton=null，但此时不为空了(已被赋予默认值)，不用进入synchroniezd，于是就**将未初始化完毕的instance对象返回**了(JVM部分有讲解)
+   - a.`new #2 <T>`分配对象的内存空间，**半初始化**对象(java中申请内存就会进行默认初始化)
+   - b.`invokespecial #3 <T.<init>>` 初始化，调用了构造方法
+   - c.`astore_1` 建立关联，将引用指向对象的地址        
+- a—>b—>c顺序执行不会有什么问题，但是如果JVM和CPU把指令顺序优化为a—>c—>b，当执行完a,c后，可能另一个线程在第一次判断singleton=null，但此时不为空了(已被赋予默认值)，不用进入synchroniezd，于是就**将未初始化完毕的instance对象返回**了
+
 ### 3.2.3 resolution
 静态解析
 
 ## 3.3 Initializing
 静态变量赋予初始值
 # 4. Java Memory Model
+## 4.1 JVM内存模型
 
 
+## 4.2 Java多线程内存模型
+![多线程内存模型](https://s1.ax1x.com/2020/10/16/0bj25t.png)
+
+- 每个Thread有一个属于自己的工作内存
+- 所有Thread共用一个主内存
+- 线程对共享变量的所有操作必须在工作内存中进行，不能直接操作主内存
+- 不同线程间不能访问彼此的工作内存中的变量，线程间变量值的传递都必须经过主内存          
+
+如果一个线程1对共享变量x的修改对线程2可见的话，需要经过下列步骤：       
+a. 线程1将更改x后的值更新到主内存        
+b. 主内存将更新后的x的值更新到线程2的工作内存中x的副本    
+
+**JMM数据原子操作：**
+1. read：从主内存读取数据
+2. load：将主内存读取的数据写入工作内存
+3. use：从工作内存读取数据来计算
+4. assign：将计算好的值重新赋值给工作内存
+5. store：将工作内存的数据写入主内存
+6. write：将store过去的变量赋值给主内存中的变量
+7. lock：将主内存变量加锁，标识为线程独占状态
+8. unlock：将主内存变量解锁，解锁后其他线程可以锁定该变量
+![JMM数据原子操作](https://s1.ax1x.com/2020/10/16/0bxOjU.png)
 
 
 # 5. JVM的汇编指令集(JVM Instruction) 

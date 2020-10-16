@@ -865,6 +865,65 @@ public class NoNameDemo {
 		*/
 ~~~
 
+- 例：this溢出问题
+
+~~~java
+public class ThisEscape {	
+	public ThisEscape() {
+		System.out.println("ThisEscape ");
+		// 在构造方法中其调用了非final和private的方法
+		Say();
+	}
+
+	public void Say() {
+		System.out.println("ThisEscape .Say()");
+	}
+
+	public static void main(String[] args) {
+		new ThisEscapeSon();
+		new ThisEscapeSon("Hello World");
+	}
+}
+
+class ThisEscapeSon extends ThisEscape {
+	private final String name;
+
+	public ThisEscapeSon() {
+		this.name = "Hello Word";
+		System.out.println("ThisEscapeSon");
+	}
+
+	public ThisEscapeSon(String name) {
+		this.name = name;
+		System.out.println("ThisEscapeSon");
+	}
+
+	/*
+	 * 在子类中重写Say方法
+	 */
+	@Override
+	public void Say() {
+		System.out.println("ThisEscapeSon.Say()-->" + name);
+	}
+}
+
+
+/*
+ThisEscape
+ThisEscapeSon.Say()-->null
+ThisEscapeSon
+ThisEscape
+ThisEscapeSon.Say()-->null
+ThisEscapeSon
+*/
+~~~
+实例化子类的时候，首先会调用父类无参构造 super()        
+执行到父类ThisEscape构造器中执行Say()方法时，此时由于子类已经重写了Say()方法，他就会调用子类的Say()方法     
+实际上，在这里就可以预见this溢出的后果了，由于子类中的this.name语句还没有执行，所以，执行Say()方法时name成员变量并没有被赋值，所以会打印null值
+
+- 修改方式：
+  - 将ThisEscape的Say()方法改成`private`作用域，那么，子类ThisEscapeSon就不能重写该方法，而只是重新定义了Say()方法，此时，只会调用ThisEscape的Say()方法完成相应的功能。
+  - 将ThisEscape的Say()方法改成`final`作用域，那么，如果子类定义Say()，就会报编译器错误，从而防止类似不可以预见性事件的发生
 ### 4.8 对象转型
 * 一个基类的引用类型变量可以指向其子类的对象
 * 基类的引用不可以访问其子类对象新增加的属性和方法  
@@ -3314,7 +3373,7 @@ public class DemoCreateThread {
 - 解决线程安全的几种方法：同步代码块，同步方法，Lock锁
 ### 3.1 synchronized同步     
 
-#### 3.1.1 **同步代码块：**
+#### 3.1.1 同步代码块：
 - `synchronized` 关键字可以对用于某个方法中的某个区块，表示对这个区块资源实行互斥访问         
 - 获取的是指定对象的锁
 ~~~java
@@ -3617,7 +3676,8 @@ private t2 = new T();
 
 如果一个线程对共享变量值的修改，能够及时的被其他线程看到，叫做共享变量的可见性。如果一个变量同时在多个线程的工作内存中存在副本，那么这个变量就叫共享变量            
 
-首先来看Java内存模型：
+首先来看Java多线程内存模型：
+![多线程内存模型](https://s1.ax1x.com/2020/10/16/0bj25t.png)
 - 每个Thread有一个属于自己的工作内存
 - 所有Thread共用一个主内存
 - 线程对共享变量的所有操作必须在工作内存中进行，不能直接操作主内存
@@ -3625,7 +3685,19 @@ private t2 = new T();
 
 如果一个线程1对共享变量x的修改对线程2可见的话，需要经过下列步骤：       
 a.线程1将更改x后的值更新到主内存        
-b.主内存将更新后的x的值更新到线程2的工作内存中x的副本       
+b.主内存将更新后的x的值更新到线程2的工作内存中x的副本    
+
+**JMM数据原子操作：**
+1. read：从主内存读取数据
+2. load：将主内存读取的数据写入工作内存
+3. use：从工作内存读取数据来计算
+4. assign：将计算好的值重新赋值给工作内存
+5. store：将工作内存的数据写入主内存
+6. write：将store过去的变量赋值给主内存中的变量
+7. lock：将主内存变量加锁，标识为线程独占状态
+8. unlock：将主内存变量解锁，解锁后其他线程可以锁定该变量
+![JMM数据原子操作](https://s1.ax1x.com/2020/10/16/0bxOjU.png)
+
 
 **1. synchronized实现可见性：**      
 - 某一个线程进入synchronized代码块前后，执行过程入如下：          
@@ -3656,9 +3728,10 @@ volatile变量不会被缓存在寄存器或其他对处理器不可见的地方
 
 **需要注意的是，System.out.println() 内部会进行内存同步。。**
 
-**JSR内存屏障：**
+**缓存一致性协议：MESI(x86CPU)**
+**JVM规定的JSR内存屏障规范：**
 JSR内存屏障分为4种：
-- LoadLoad屏障：在Load2以及后续读取操作要读取的数据被访问前，保证Load1要读的数据被读取完毕
+- LoadLoad屏障(`load1; loadload; load2;`)：在Load2以及后续读取操作要读取的数据被访问前，保证Load1要读的数据被读取完毕
 - StoreStore屏障：在Store2以及后续写入操作执行前，保证Store1的写入操作对其他处理器可见
 - LoadStore屏障：在Store2及后续写入操作执行前，保证Load1要读取的数据被读取完毕
 - StoreLoad屏障：在Load2及后续所有读取操作执行前，保证Store1的写入对所有处理其可见
@@ -3911,11 +3984,28 @@ public class Singleton {
 ~~~
 - **volatile防止该变量初始化时指令重排**，确保引用指向内存前实例初始化完毕，而可见性已经由synchronized保证了(https://blog.csdn.net/FU250/article/details/79721197)     
 - 其实`instance = new Singleton()` 可以拆分成三部分：
- - a.`new #2 <T>`分配对象的内存空间，半初始化对象
- - b.`invokespecial #3 <T.<init>>` 初始化
- - c.`astore_1` 将引用指向对象的地址        
+ - a.`new #2 <T>`分配对象的内存空间，**半初始化**对象(java中申请内存就会进行默认初始化)
+ - b.`invokespecial #3 <T.<init>>` 初始化，调用了构造方法
+ - c.`astore_1` 建立关联，将引用指向对象的地址        
 - a—>b—>c顺序执行不会有什么问题，但是如果JVM和CPU把指令顺序优化为a—>c—>b，当执行完a,c后，可能另一个线程在第一次判断singleton=null，但此时不为空了(已被赋予默认值)，不用进入synchroniezd，于是就**将未初始化完毕的instance对象返回**了(JVM部分有讲解)
 - **静态方法，应该使用该类的锁**，锁住的是Singleton.class对象
+
+**this溢出问题：**
+
+~~~java
+public class T{
+    private int num = 0;
+    public T(){
+        new Thread(()->Syststem.out.println(this.num));
+    }
+    public static void main(String[] args){
+        new T();
+        System.in.read();
+    }
+}
+~~~
+- 不要在构造方法中启动线程
+
 
 ## 4. 线程池        
 - 线程池为任务分配空闲的线程，任务执行完成后回到线程池等待下次任务(而不是销毁)，这样就实现了线程的重用      
