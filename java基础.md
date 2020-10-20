@@ -1654,17 +1654,39 @@ public class ArrayDeque<E> extends AbstractCollection<E>
 2. TreeSet：有序，不允许为null，底层是TreeMap(红黑树),非线程同步
 3. LinkedHashSet：迭代有序，允许为null，底层是HashMap+双向链表，非线程同步
 
+**Set如何区分重复元素？==还是equals？**
+看hashMap的源码
+~~~java
+    // 1. 如果key 相等  
+    if (p.hash == hash &&
+        ((k = p.key) == key || (key != null && key.equals(k))))
+        e = p;
+    // 2. 修改对应的value
+     if (e != null) { // existing mapping for key
+            V oldValue = e.value;
+            if (!onlyIfAbsent || oldValue == null)
+                e.value = value;
+            afterNodeAccess(e);
+            return oldValue;
+       }
+~~~
+所以两者都有使用，只要满足一个条件，就认为是重复元素
+
 ### 6.1 HashSet
 - jdk1.8之前，哈希冲突用链表解决，1.8之后超过长度8的链表转为红黑树来处理哈希冲突
-- `HashSet` 是 `HashMap` 的一个实例，**不保证集合的迭代顺序**
+- `HashSet` 是 `HashMap` 的一个实例(实际上就是HashMap)，**不保证集合的迭代顺序**，实现了`Set接口`
 - 这个实现不是线程安全的，多线程应该使用`Collections.synchronizedSet()`方法重写
-- 集合元素可以是null,但只能放入一个null
-- HashSet集合判断两个元素相等的标准是两个对象通过equals方法比较相等，并且两个对象的hashCode()方法返回值相等,**所以在重写了equals方法之后也应该重写hashCode方法，equals返回true时，hashCode也应该相同**
+- **集合元素可以是null,但只能放入一个null**
+- HashSet集合判断两个元素相等的标准是两个对象通过`equals方法`比较相等，并且两个对象的hashCode()方法返回值相等,**所以在重写了equals方法之后也应该重写hashCode方法，equals返回true时，hashCode也应该相同**
 - `HashSet` 底层实际上是一个 `HashMap` 实例，`value` 是一个 `Object` ，所有 `key` 的 `value` 都是它     
+~~~java
+private static final Object PRESENT = new Object();  //value...
+~~~
 
 ### 6.2 TreeSet
-- 基于TreeMap的NavigableSet实现，使用自然排序或创建时提供的Comparator进行排序   
-- 是SortedSet接口的唯一实现类，确保集合元素处于排序状态
+- 维护了一个`TreeMap`
+- 基于`TreeMap`的`NavigableSet`实现，使用自然排序或创建时提供的Comparator进行排序   
+- 是`SortedSet`接口的唯一实现类，确保集合元素处于排序状态
 - 为基本操作`add`、`remove`、`contains`提供了**logn**的时间复杂度
 - 这个实现不是线程安全的。多线程使用`SortedSet s = Collections.synchronizedSortedSet(new TreeSet(...));`
 - `TreeMap` 底层实际上是一个 `TreeMap` 实例， `value` 也是 `Object` 
@@ -1763,14 +1785,64 @@ public class ArrayDeque<E> extends AbstractCollection<E>
 ![hashMap底层结构](https://s1.ax1x.com/2020/09/28/0EHouV.png)
 - 特点： 无序，允许null，非同步   
 - 底层是: 数组+散列表+红黑树   
+- **数组是Entry的数组**，Entry里存放：`key,value,hashcode,next`
+
+jdk1.7的头插法结构如下：
+![jdk1.7hashMap](https://s1.ax1x.com/2020/10/20/BSKUVf.png)
+
+
 - 初始容量为16，最大容量 2^30， 默认装载因子为 0.75
 - `TREEIFY_THRESHOLD = 8` ： 控制桶中链表最多的节点数，超出则转为树形结构，默认为 8
 - `UNTREEIFY_THRESHOLD = 6` ： 树形结构转链表的阈值，默认为 6
 - `MIN_TREEIFY_CAPARITY = 64` ： 转树形结构的最小散列表容量
 
-- 构造方法：
+构造方法：
 - `public HashMap(int initialCapacity, float loadFactor)`       
 - `public HashMap()`
+
+~~~java
+public class HashMap<K,V> extends AbstractMap<K,V>
+    implements Map<K,V>, Cloneable, Serializable {
+
+    private static final long serialVersionUID = 362498820763181265L;
+    static final int DEFAULT_INITIAL_CAPACITY = 1 << 4; //初始容量16
+    static final int MAXIMUM_CAPACITY = 1 << 30;    //最大的阈值容量
+    static final float DEFAULT_LOAD_FACTOR = 0.75f;
+    static final int TREEIFY_THRESHOLD = 8;     //树化单表阈值
+    static final int UNTREEIFY_THRESHOLD = 6;   //表化阈值
+    static final int MIN_TREEIFY_CAPACITY = 64;   //树化总阈值
+
+    static class Node<K,V> implements Map.Entry<K,V> {
+        final int hash;
+        final K key;
+        V value;
+        Node<K,V> next; //链表结构
+        ...
+    }
+
+    transient Node<K,V>[] table;
+
+    public HashMap() {
+        this.loadFactor = DEFAULT_LOAD_FACTOR; // all other fields defaulted
+    }
+
+    public HashMap(int initialCapacity, float loadFactor) {
+        ...
+        this.loadFactor = loadFactor;
+        this.threshold = tableSizeFor(initialCapacity); //扩容阈值
+    }
+    static final int tableSizeFor(int cap) {//返回一个大于输入值的最小的2的次幂
+        int n = cap - 1;
+        n |= n >>> 1;
+        n |= n >>> 2;
+        n |= n >>> 4;
+        n |= n >>> 8;
+        n |= n >>> 16;
+        return (n < 0) ? 1 : (n >= MAXIMUM_CAPACITY) ? MAXIMUM_CAPACITY : n + 1;
+    }
+
+    public HashMap(int initialCapacity) {this(initialCapacity, DEFAULT_LOAD_FACTOR);}
+~~~
 #### 7.2.1 哈希Map的设计中需要解决的几个问题
 - 索引id的计算时，使用hashcode值和数组长度进行位与操作，这就需要数组长度是2的倍数，那么这个数组大小如何初始化？
 - 数组越小碰撞越多，数组越大碰撞越少，如何进行时间和空间的取舍？
@@ -1841,73 +1913,13 @@ static final float DEFAULT_LOAD_FACTOR = 0.75f;
 5. 如果table[i]中没有相同节点，则判断是不是红黑树节点，如果是红黑树节点，则在红黑树中添加此Entry
 6. 如果不是红黑树，遍历链表，统计长度，同时判断每个节点是否和欲插入节点相同，是则直接覆盖，否则插入到尾部，然后判断链表长度是否超过8，如果超过8则转为红黑树存储
 7. 最后判断是否超过阈值`threshold`，超过则扩容
-8. treeifyBin,是一个链表转树的方法，但不是所有的链表长度为8后都会转成树，还需要判断存放key值的数组桶长度是否小于64 MIN_TREEIFY_CAPACITY。如果小于则需要扩容，扩容后链表上的数据会被拆分散列的相应的桶节点上，也就把链表长度缩短了
+8. `treeifyBin`,是一个链表转树的方法，**但不是所有的链表长度为8后都会转成树**，还需要判断存放key值的数组桶长度是否大于64 `MIN_TREEIFY_CAPACITY`。如果小于则扩容，扩容后链表上的数据会被拆分散列的相应的桶节点上，也就把链表长度缩短了
 
 - 关于插入，**在java8之前是头插法**，信赖的值取代原有的值，原有的值直接被顺推到链表中去了，因为作者觉得后来的值被查找的可能性更大一些，以此提升查找的效率     
 但是**java8开始都采用尾部插入**了，原因是要扩容（当长度达到Capacity*loadFactor时，插入引起碰撞则扩容），扩容需要新建一个2倍于原数组长度的数组，再遍历Entry数组，把每个Entry重新Hash到新的数组。但是**采用头插的话，resize时链表刚好翻转，且形成环状**，使用尾插则可以一直保持链表的形状不变，且可以避免形成环
 - **为什么重写equals后必须重写hashcode方法：** 因为HashMap放入元素的时候是根据hashCode方法来定位数组的位置的，如果两个元素equals相等，没有重写hashCode方法，那么就会被认为是不同的key，都放到HashMap里，这样实际上就存放了重复元素
-~~~java
-public V put(K key, V value) {
-    return putVal(hash(key), key, value, false, true);
-}
 
-final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
-               boolean evict) {
-    Node<K,V>[] tab; Node<K,V> p; int n, i;
-    // 初始化桶数组 table，table 被延迟到插入新数据时再进行初始化
-    if ((tab = table) == null || (n = tab.length) == 0)
-        n = (tab = resize()).length;
-    // 如果桶中不包含键值对节点引用，则将新键值对节点的引用存入桶中即可
-    if ((p = tab[i = (n - 1) & hash]) == null)
-        tab[i] = newNode(hash, key, value, null);
-    else {
-        Node<K,V> e; K k;
-        // 如果键的值以及节点 hash 等于链表中的第一个键值对节点时，则将 e 指向该键值对
-        if (p.hash == hash &&
-            ((k = p.key) == key || (key != null && key.equals(k))))
-            e = p;
-            
-        // 如果桶中的引用类型为 TreeNode，则调用红黑树的插入方法
-        else if (p instanceof TreeNode)  
-            e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
-        else {
-            // 对链表进行遍历，并统计链表长度
-            for (int binCount = 0; ; ++binCount) {
-                // 链表中不包含要插入的键值对节点时，则将该节点接在链表的最后
-                if ((e = p.next) == null) {
-                    p.next = newNode(hash, key, value, null);
-                    // 如果链表长度大于或等于树化阈值，则进行树化操作
-                    if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
-                        treeifyBin(tab, hash);
-                    break;
-                }
-                
-                // 条件为 true，表示当前链表包含要插入的键值对，终止遍历
-                if (e.hash == hash &&
-                    ((k = e.key) == key || (key != null && key.equals(k))))
-                    break;
-                p = e;
-            }
-        }
-        
-        // 判断要插入的键值对是否存在 HashMap 中
-        if (e != null) { // existing mapping for key
-            V oldValue = e.value;
-            // onlyIfAbsent 表示是否仅在 oldValue 为 null 的情况下更新键值对的值
-            if (!onlyIfAbsent || oldValue == null)
-                e.value = value;
-            afterNodeAccess(e);
-            return oldValue;
-        }
-    }
-    ++modCount;
-    // 键值对数量超过阈值时，则进行扩容
-    if (++size > threshold)
-        resize();
-    afterNodeInsertion(evict);
-    return null;
-}
-~~~
+![put操作](https://s1.ax1x.com/2020/10/19/0x0WcV.png)
 
 #### 7.2.6 链表和红黑树的互转
 - JDK1.8以前的设计只是采用链表的方式处理冲突，链表越长性能越差，JDK1.8开始**当链表长度大于8，并且桶容量大于64时**，将链表转为红黑树结构，以此让定位元素的时间复杂度接近O(logn)。
@@ -1918,37 +1930,7 @@ final V putVal(int hash, K key, V value, boolean onlyIfAbsent,
 - 扰动函数
 - 计算下标
 - 确定桶组下标的位置，接下来就是对红黑树和链表进行查找和遍历操作了
-~~~java
-public V get(Object key) {
-    Node<K,V> e;
-    // 同样需要经过扰动函数计算哈希值
-    return (e = getNode(hash(key), key)) == null ? null : e.value;
-}
-
-final Node<K,V> getNode(int hash, Object key) {
-    Node<K,V>[] tab; Node<K,V> first, e; int n; K k;
-    // 判断桶数组的是否为空和长度值
-    if ((tab = table) != null && (n = tab.length) > 0 &&
-        // 计算下标，哈希值与数组长度-1
-        (first = tab[(n - 1) & hash]) != null) {
-        if (first.hash == hash && // always check first node
-            ((k = first.key) == key || (key != null && key.equals(k))))
-            return first;
-        if ((e = first.next) != null) {
-            // TreeNode 节点直接调用红黑树的查找方法，时间复杂度O(logn)
-            if (first instanceof TreeNode)
-                return ((TreeNode<K,V>)first).getTreeNode(hash, key);
-            // 如果是链表就依次遍历查找
-            do {
-                if (e.hash == hash &&
-                    ((k = e.key) == key || (key != null && key.equals(k))))
-                    return e;
-            } while ((e = e.next) != null);
-        }
-    }
-    return null;
-}
-~~~
+![get操作](https://s1.ax1x.com/2020/10/19/0x2zHx.png)
 
 #### 7.2.8 HashMap的遍历顺序
 KeySet是遍历是无序的，但每次使用不同方式遍历包括keys.iterator()，它们遍历的结果是固定的     
@@ -1963,7 +1945,20 @@ KeySet是遍历是无序的，但每次使用不同方式遍历包括keys.iterat
 ### 7.3 HashTable 
 - 和HashMap实现基本相同，但线程安全，不允许 key 和 value 为 null，过时的类，需要线程安全时用`ConcurrentHashMap`即可
 
-### 7.4 LinkedHashMap  
+**HashMap和HashTable的对比**
+从存储结构和实现来讲基本上都是相同的。它和HashMap的最大的不同是**它是线程安全的**，另外**它不允许key和value为null**。Hashtable是个过时的集合类，不建议在新代码中使用，不需要线程安全的场合可以用HashMap替换，需要线程安全的场合可以用ConcurrentHashMap替换
+
+
+
+![HashMap和HashTable](https://s1.ax1x.com/2020/10/19/0xR3vj.png)
+
+### 7.4 LinkedHashMap       
+~~~java
+public class LinkedHashMap<K,V>
+    extends HashMap<K,V>  //继承了HashMap
+    implements Map<K,V>
+{...}
+~~~ 
 - 特点：插入有序，允许null，不同步    
 - 底层是散列表和双向链表
 - 构造方法：
@@ -1972,16 +1967,28 @@ KeySet是遍历是无序的，但每次使用不同方式遍历包括keys.iterat
 - `public LinkedHashMap(Map<? extends K, ? extends V> m)`
 - `public LinkedHashMap(int initialCapacity, float loadFactor, boolean accessOrder)`
 - `accessOrder`：the ordering mode， true for access-order, false for insertion-order 默认均为false，按插入的顺序遍历
-- 在access-order的情况下，访问一次就会修改顺序，最常用的放在最后面
+- 在access-order的情况下，使用get方法就会导致结构性修改，最常用的放在最后面，**可以让我们直接实现LRU算法**
+- `removeEldestEntry(Map.Entry<K,V> eldest)` 重写以实现删除最久未被使用的元素
+~~~java
+protected boolean removeEldestEntry(Map.Entry<K,V> eldest) {
+    return false;
+}
+~~~
+
+
+- get的实现方式：每次查询之后就把该节点放到链表末尾
+![LinkedHashMap的get](https://s1.ax1x.com/2020/10/19/0xWofU.png)
 
 ### 7.5 TreeMap 
 - TreeMap 实现了`NavigableMap` 接口，而 `NavigableMap` 接口继承自 `SortedMap` 接口，所以TreeMap是有序的  
 - TreeMap 底层是红黑树，时间复杂度logn    
 - 非同步
-- 使用 `Comparator` 或者 `Comparable` 比较 key 是否相等和排序   
+- 使用 `Comparator` 或者 `Comparable` 比较 key 是否相等和排序
+- **TreeMap 的所有的 key 必须实现 Comparable 接口**，当compatator==null时使用key的compatable接口实现自然排序
+- **TreeMap 的key 不能为null**
 - 构造方法：
 - `public TreeMap()` : 
-- `public TreeMap(Comparator<? super K> comparator)`   
+- `public TreeMap(Comparator<? super K> comparator)` ：传入比较器  
 - `public TreeMap(Map<? extends K, ? extends V> m)` : 使用 putAll 将 Map 转 TreeMap   
 - `public TreeMap(SortedMap<K, ? extends V> m)`  
 - 如果 `Comparator` 不为 `null`，则使用 `Comparator.compare()` 比较，否则使用 `key` 作为比较器进行比较，但是 `key` 必须实现 `Comparable` 接口
@@ -1993,8 +2000,7 @@ KeySet是遍历是无序的，但每次使用不同方式遍历包括keys.iterat
         @Override
         public int compare(Student o1, Student o2) {
             int num = o1.getAge() - o2.getAge();
-            int num2 = (num == 0) ? o1.getName().compareTo(o2.getName()) : num;
-            return num2;
+            return (num == 0) ? o1.getName().compareTo(o2.getName()) : num;
         }
     });
 
@@ -2011,9 +2017,149 @@ KeySet是遍历是无序的，但每次使用不同方式遍历包括keys.iterat
     }
 ~~~
 
+- TreeMap的put：注意
+![TreeMap的put](https://s1.ax1x.com/2020/10/19/0zF1Kg.png)
+
+
+
 ### 7.6 ConcurrentHashMap
+- jdk1.5新增juc包，包含线程安全的集合类，允许迭代时修改集合。原utils包下的集合是fail-fast的，会抛出ConcurrentModificationException，但juc下的集合不会
+- ConcurrentHashMap的底层是：数组+散列表+红黑树，与HashMap是一样的
+- **ConcurrentHashMap不允许key和value为null**
+- 检索方法不用加锁，get方法是非阻塞的
+
+JDK1.7的底层是segments+HashEntry数组        
+Segment继承了`ReentrantLock`,每个片段都有了一个锁，叫做“锁分段”
+![ConcurrentHashMap](https://s1.ax1x.com/2020/10/19/0zZujK.png)
+
+JDK1.8的底层是数组+散列表+红黑树
+![ConcurrentHashMap](https://s1.ax1x.com/2020/10/19/0z89wq.png)
+使用table数组来存储Node
+
+#### 7.6.1 构造方法
+- `public ConcurrentHashMap()`
+- `public ConcurrentHashMap(int initialCapacity)`
+- `public ConcurrentHashMap(Map<? extends K, ? extends V> m)`
+- `public ConcurrentHashMap(int initialCapacity, float loadFactor)`
+
+![ConcurrentHashMap构造](https://s1.ax1x.com/2020/10/19/0zM5VK.png)
+#### 7.6.2 node节点
+- value 和 next 设置了多线程可见 volatile
+![node节点](https://s1.ax1x.com/2020/10/19/0zN56S.png)]
+#### 7.6.3 put方法和table初始化
+![ConcurrentHashMap的put](https://s1.ax1x.com/2020/10/19/0z1V4U.png)
+
+- initTable() 初始化table表，保证只让一个线程对散列表进行初始化
+`sizeCtl`是一个用于同步多个线程的共享变量，如果它的当前值为负数，则说明table正在被某个线程初始化或者扩容，所以，如果某个线程想要`初始化table`或者`对table扩容`，需要去竞争`sizeCtl`这个共享变量，获得变量的线程才有许可去进行接下来的操作，没能获得的线程将会一直自旋来尝试获得这个共享变量，所以获得sizeCtl这个变量的线程在完成工作之后需要设置回来，使得其他的线程可以走出自旋进行接下来的操作
+- ConcurrentHashMap 延迟创建table到put第一个元素时
+
+![initTable](https://s1.ax1x.com/2020/10/19/0zYLHs.png)
+
+#### 7.6.4 get方法
+- get不用加锁，是非阻塞的
+![get](https://s1.ax1x.com/2020/10/19/0zNkQS.png)
+
+#### 7.6.5 ConcurrentHashMap 和 HashTable的区别
+- HashTable 无论key还是value都不能为null，线程安全
+- HashMap 可以存储null键和null值，线程不安全
+- ConcurrentHashMap 可以存储null键和null值，线程安全
+- Hashtable 之所以效率低主要是使用了 `synchronized` 关键字对 put 等操作进行加锁，而 synchronized 关键字加锁是对整张 Hash 表的，即**每次锁住整张表让线程独占**，致使效率低下
+- `ConcurrentHashMap`使用`synchronized`和`CAS`来实现轻量级的同步：
+  - **使用volatile保证当Node中的值变化时对于其他线程是可见的**
+  - **使用table数组的头结点作为synchronized的锁来保证写操作的安全**
+  - **当头结点为null时，使用CAS操作来保证数据能正确的写入**
 
 
+**线程安全时(HashTable和ConcurrentHashMap)为什么不允许null值：** 在并发的map容器里面，调用map.get(key)方法得到的值是null，则无法判断这个key是在map里面映射为null，还是这个key在map里面根本就不存在。这种情况下，在非并发安全的map中，你可以通过map.contains(key)的方法来判断。但是在考虑并发安全的map中，在两次调用的过程中，这个值是有可能被改变的
+
+## 8. CopyOnWriteArrayList和CopyOnWriteArraySet
+- juc中类似ArrayList和Set的线程安全的容器类
+- Hashtable、Vector加锁的粒度大(直接在方法声明处使用synchronized)
+- ConcurrentHashMap、CopyOnWriteArrayList加锁粒度小(用各种的方式来实现线程安全，比如我们知道的ConcurrentHashMap用了cas锁、volatile等方式来实现线程安全..)
+- JUC下的线程安全容器在遍历的时候不会抛出ConcurrentModificationException异常
+### 8.1 Vector和SynchronizedList
+- Vector几乎在每个**方法的声明处**都加了synchronized，以此来保证线程安全
+- 如果使用`Collections.synchronizedList(new ArrayList())`来使ArrayList变成是线程安全的话，也是几乎都是每个方法都加上synchronized关键字的，只不过它不是加在方法的声明处，而是**方法的内部**
+
+![vector和synchronizedList](https://s1.ax1x.com/2020/10/19/0z03Vg.png)
+
+- vector 和 synchronizedList可能出现的问题：
+~~~java
+    public static void deleteLast(Vector list) {
+        int lastIndex = list.size() - 1;
+        list.remove(lastIndex);
+    }
+~~~
+多线程环境下，虽然`list.size()`是线程安全的，但是执行-1操作后再对lastIndex进行remove并不安全，可能导致空指针异常(获取size后被其他线程删除最后节点)
+那这时如果直接对`deleteLast()`加锁，就可以实现删除操作的线程安全，但是保证不了修改vector长度时的线程安全：
+~~~java
+    for (int i = 0; i < vector.size(); i++) {
+        new Thread(() -> vector.clear()).start();
+        System.out.println(vector.get(i));  //ArrayIndexOutOfBoundsException
+    }
+~~~
+所以为了安全还得在遍历容器的时候加锁。非常的麻烦
+
+### 8.2 CopyOnWriteArrayList
+- `CopyOnWrite`：如果有多个调用者（callers）同时请求相同资源（如内存或磁盘上的数据存储），他们会共同获取相同的指针指向相同的资源，直到某个调用者试图修改资源的内容时，系统才会真正复制一份专用副本（private copy）给该调用者，而其他调用者所见到的最初的资源仍然保持不变。优点是如果调用者没有修改该资源，就不会有副本（private copy）被建立，因此多个调用者只是读取操作时可以共享同一份资源
+
+#### 8.2.1 基本结构
+- 用到了可重入锁ReentrantLock
+  
+![CopyOnWriteArrayList](https://s1.ax1x.com/2020/10/20/0zzk5T.png)
+
+#### 8.2.2 常用方法的实现
+
+- `add()`方法的实现：添加时上锁，复制到新的数组，添加操作在新数组上完成，最后将array指向新数组，然后解锁
+~~~java
+    public boolean add(E e) {
+        // 加锁
+        final ReentrantLock lock = this.lock;
+        lock.lock();
+        try {   
+            // 得到原数组的长度和元素
+            Object[] elements = getArray();
+            int len = elements.length;
+      
+            // 复制出一个新数组
+            Object[] newElements = Arrays.copyOf(elements, len + 1);
+      
+            // 添加时，将新元素添加到新数组中
+            newElements[len] = e;
+      
+            // 将volatile Object[] array 的指向替换成新数组
+            setArray(newElements);
+            return true;
+        } finally {
+            lock.unlock();
+        }
+    }
+~~~
+- `set()`方法和`add()`方法类似，上锁->复制到新的数组->修改新数组->引用指向新数组
+- `size()`和`get()`等读方法直接进行，不需要上锁
+
+#### 8.2.3 写操作的同步原理
+为什么写操作加了锁了还要复制一遍数组再修改?? 
+1. JAVA中“=”操作只是将引用和某个对象关联，假如同时有一个线程将引用指向另外一个对象，一个线程获取这个引用指向的对象，那么他们之间不会发生ConcurrentModificationException，他们是在虚拟机层面阻塞的，而且速度非常快，几乎不需要CPU时间。
+2. JAVA中两个不同的引用指向同一个对象，当第一个引用指向另外一个对象时，第二个引用还将保持原来的对象
+
+基于以上两点原因。CopyOnWriteArrayList 在列表有更新时直接将原有的列表复制一份，并再新的列表上进行更新操作，完成后再将引用移到新的列表上（java的第一个特性，速度快）。旧列表如果仍在使用中(比如遍历)则继续有效。如此一来就**不会出现修改了正在使用的对象的情况**(读（老对象）和写（新复制的对象）分别发生在两个对象上，第二个特性，读写分离)，同时**读操作也不必等待写操作的完成**，免去了锁的使用加快了读取速度。
+
+**CopyOnWriteArrayList在使用迭代器遍历的时候，操作的都是原数组**
+
+#### 8.2.4 缺点总结
+- **内存占用：** 如果CopyOnWriteArrayList经常要增删改里面的数据，经常要执行add()、set()、remove()的话，那是比较耗费内存的，这些增删改操作都要复制一个数组出来。
+- **数据一致性：** CopyOnWrite容器只能保证数据的**最终一致性**，不能保证数据的实时一致性。
+
+### 8.3 CopyOnWriteSet
+- `CopyOnWriteSet`就是用`CopyOnWriteArrayList`来实现的
+~~~java
+    private final CopyOnWriteArrayList<E> al;
+​
+    public CopyOnWriteArraySet() {
+        al = new CopyOnWriteArrayList<E>();
+    }
+~~~
 
 # 异常  
 
@@ -3661,6 +3807,7 @@ java的volatile关键字用于通知虚拟机这个变量具有易变性，易�
 - 根据空间局部性原理，每次去内存中取数据时都会**成块的读取(缓存行 Cache line)**，目前缓存行的大小多用**64字节**(折衷)
 - 多核cpu，并行计算，如果某一个核中数据发生改变，就需要更新到主存，其他操作该数据的核必须重新读取
 - 缓存一致性协议：缓存行的状态有4个：Invalid(已失效), Shared(只能读取不能写入), Exclusive(独占，其他处理器如果持有该缓存行，则立即变为Invalid), Modified(被修改，只有处于Exclusive才能被修改)
+- **缓存一致性协议可以让失效的内存区域去更新，但是不能保证立马更新到最新值**，不同硬件的实现方式不一样
 
 ~~~java
 private static class T{
