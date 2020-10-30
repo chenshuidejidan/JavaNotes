@@ -2050,16 +2050,19 @@ JDK1.8的底层是数组+散列表+红黑树
 ![ConcurrentHashMap的put](https://s1.ax1x.com/2020/10/19/0z1V4U.png)
 
 - initTable() 初始化table表，保证只让一个线程对散列表进行初始化
-`sizeCtl`是一个用于同步多个线程的共享变量，如果它的当前值为负数，则说明table正在被某个线程初始化或者扩容，所以，如果某个线程想要`初始化table`或者`对table扩容`，需要去竞争`sizeCtl`这个共享变量，获得变量的线程才有许可去进行接下来的操作，没能获得的线程将会一直自旋来尝试获得这个共享变量，所以获得sizeCtl这个变量的线程在完成工作之后需要设置回来，使得其他的线程可以走出自旋进行接下来的操作
+`sizeCtl`是一个用于同步多个线程的共享变量，如果它的当前值为负数，则说明table正在被某个线程初始化或者扩容(`-1代表正在初始化，-N代表正在扩容，正数代表要引发扩容的阈值`)，所以，如果某个线程想要`初始化table`或者`对table扩容`，需要去竞争`sizeCtl`这个共享变量，获得变量的线程才有许可去进行接下来的操作，没能获得的线程将会一直自旋来尝试获得这个共享变量，所以获得sizeCtl这个变量的线程在完成工作之后需要设置回来，使得其他的线程可以走出自旋进行接下来的操作
 - ConcurrentHashMap 延迟创建table到put第一个元素时
 
 ![initTable](https://s1.ax1x.com/2020/10/19/0zYLHs.png)
 
-#### 7.6.4 get方法
+#### 7.6.4 扩容
+![扩容](https://s1.ax1x.com/2020/10/23/BEUzaq.png)
+
+#### 7.6.5 get方法
 - get不用加锁，是非阻塞的
 ![get](https://s1.ax1x.com/2020/10/19/0zNkQS.png)
 
-#### 7.6.5 ConcurrentHashMap 和 HashTable的区别
+#### 7.6.6 ConcurrentHashMap 和 HashTable的区别
 - HashTable 无论key还是value都不能为null，线程安全
 - HashMap 可以存储null键和null值，线程不安全
 - ConcurrentHashMap 可以存储null键和null值，线程安全
@@ -3505,10 +3508,38 @@ public class DemoCreateThread {
 ~~~
 
 ### 2.3 实现Callable接口
-- Runnable没有返回值，不能抛出受检查的异常，而Callable可以
-- Callable的call方法返回值是Future接口类型，通过get方法获得返回值
-- get方法具有阻塞性，提交任务之后主线程本来是继续运行了，运行到 future.get() 时便则阻塞住了，等待返回值。
-- 详细使用见线程池部分
+- Runnable没有返回值，不能抛出受检查的异常，而**Callable可以获得返回值,可以抛出异常！！**
+- Callable线程需要用`FutureTask`封装后才能被`Thread`执行
+- 或者直接使用线程池，就不需要用`FutureTask`进行封装，直接传入Callable即可(线程池底层一样使用了FutureTask来封装)
+- Callable的call方法返回值是`Future接口`类型，通过get方法获得返回值
+- get方法具有阻塞性，提交任务之后主线程本来是继续运行了，运行到 `FutureTask.get()` 时便则阻塞住了，等待返回值
+- `FutureTask`实现了`Runnable`接口！FutureTask中重写run方法，调用Callable的call()方法，用一个成员变量保存了call方法的结果，通过get方法返回（阻塞）
+
+~~~java
+        //造一个Callable 泛型是String，所以调用时返回的Future里的类型也是String
+        Callable<String> myThread = new Callable() {
+            @Override
+            public Object call() throws Exception {
+                return "RETURN SOME VALUE";
+            }
+        };
+
+        //使用FutureTask进行封装
+        FutureTask<String> myThreadTask = new FutureTask<>(myThread);
+
+        new Thread(myThreadTask).start();
+
+        try {
+            String value = myThreadTask.get();    //get()方法获得返回值
+            System.out.println(value);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        } catch (
+                ExecutionException e) {
+            e.printStackTrace();
+        }
+~~~
+
 
 **run和start的区别：**
 - `run()` : 仅仅是封装被线程执行的代码，直接调⽤是普通⽅法      
@@ -3596,16 +3627,34 @@ static method running
 ~~~
 
 #### 3.1.3 锁升级
-- 一开始的synchronized效率特别低，全部采用重量级锁，jdk1.5带来了Lock锁，性能比synchronized好，但从jdk1.6开始synchronized就进行了各种优化(适应自旋锁，消除锁，锁粗化，轻量级锁，偏向锁)。所以现在二者差别不大，大多数时候用synchronized锁就好了。
+- 一开始的synchronized效率特别低，全部采用重量级锁，jdk1.5带来了Lock锁，性能比synchronized好
+- jdk1.6之前的synchronized，锁的是对象内部的monitor对象，竞争失败的线程全部阻塞进入等待队列，所以是重量级锁，涉及到线程切换，上下文切换的操作
+- 但从jdk1.6开始synchronized就进行了各种优化(适应自旋锁，消除锁，锁粗化，轻量级锁，偏向锁)。所以现在二者差别不大，大多数时候用synchronized锁就好了。
 
 现在的synchronized：
-![0T99HA.png](https://s1.ax1x.com/2020/10/15/0T99HA.png)
+![锁升级](https://s1.ax1x.com/2020/10/22/Bk9mEF.png)
+
 - 偏向锁：最轻量级，省去了锁竞争机制(第一个线程直接进入)，**只要竞争就必须进行锁升级**，采用偏向锁是因为大多数时候都没有竞争，只有一个线程运行代码，这样提高了效率
 - 轻度竞争时转向轻量级锁(CAS)，重度竞争时(自旋次数过多)转向重量级锁
 
 升级过程???????????????????????????????????
 
 ### 3.2 关于锁的一些概念
+|锁的类型|简介|应用|
+|---|---|---|
+|乐观锁| |CAS|
+|悲观锁| |synchronized、vector、HashTable|
+|自旋锁| |CAS|
+|可重入锁| |synchronized、ReentrantLock、Lock|
+|读写锁| |ReentrantReadWriteLock、CopyOnWriteArrayList、CopyOnWriteArraySet|
+|公平锁|队列 |ReentrantLock(True)|
+|非公平锁|抢占式 |synchronized、ReentrantLock(False)默认方式|
+|共享锁|多线程共享读锁，和乐观锁、读写锁同义 |ReentrantReadWriteLock中读锁|
+|独占锁|只有一个线程能获得锁，悲观锁、互斥锁|synchronized、vector、HashTable、ReentrantReadWriteLock中写锁|
+|分段锁|锁住操作的段，而不是锁住整个对象|concurrentHashMap|
+|互斥锁|悲观锁、独占锁|synchronized|
+|同步锁|互斥锁 |synchronized|
+
 #### 3.2.1 自旋锁，轻量级锁，重量级锁
 - 自旋锁就是轻量级锁，未获得锁的线程原地等待(while)，需要消耗CPU资源，直到锁释放       
 - 重量级锁，未获得锁的线程进入队列等待，不消耗资源，直到OS的调度      
@@ -3616,11 +3665,16 @@ static method running
 **偏向锁不是一种锁**   
 比轻量级锁还轻，省去了锁竞争机制(第一个线程直接进入)
 
+#### 3.2.3 乐观锁和悲观锁
+- 乐观锁：假定当前环境读多写少，遇到并发写的概率比较低，读时认为别的线程不会正在修改，写时判断一下此期间数据是否有被更改(使用版本号或者CAS)，没被更改则更新，否则拒绝。如果冲突频率大，乐观锁会需要多次重试才能成功，代价比较大，改用悲观锁
+- 悲观锁：假定当前环境写多读少，遇到并发写的改率很高，每次读写都认为其他线程会修改，所以读写都上锁
+
 
 ### 3.3 Lock显式锁 
 - java.util.locks.lock 接口, Lock锁提供了比 synchronized 代码块和 synchronized 方法更广泛的锁定操作，除了具备前两者的功能外，还有更强大的功能，更能体现面向对象的思想     
 - Lock锁更灵活，但必须手动释放锁。synchronized加锁更方便，出错少
-
+- synchronized 在发生异常时，会自动释放线程占有的锁，因此不会导致死锁现象发生；而 Lock 在发生异常时，如果没有主动通过 unLock()去释放锁，则很可能造成死锁现象，因此使用 Lock 时需要在 finally 块中释放锁
+- **Lock 可以让等待锁的线程响应中断**，而 **synchronized 却不行**，使用synchronized 时，等待的线程会一直等待下去，不能够响应中断
 - Lock锁的加锁和释放锁进行方法化了：        
 `public void lock()`        
 `public void unlock()`      
@@ -3633,7 +3687,7 @@ static method running
 - AQS是 ReentrantReadWriteLock 和 ReentrantLock 的基础，这两种 Lock 锁默认的实现都是在内部类Syn中，
 ⽽Syn是继承AQS的        
 
-#### 3.3.2 重入锁Reentrantlock     
+#### 3.3.2 重入锁ReentrantLock     
 `java.util.concurrent.locks.ReentrantLock` implements `Lock`        
 - 加锁和释放锁都在方法里进行，可以自由控制，比synchronized更灵活方便，还可以多重加锁
 - 释放锁必须在finally里，否则可能导致锁不能正常被释放，卡死后续访问该锁的线程    
@@ -3738,7 +3792,7 @@ CAS即比较并交换，是实现并发算法时常用到的技术。CAS是一�
 CAS虽然很高效的解决了原子操作的问题，但是仍然存在几个问题：
 - **循环时间长开销很大：** 如果CAS失败会循环进行CAS操作(循环的同时将期望更新为最新的)，长时间不成功的话会给CPU带来极大的开销(这种循环也成为**自旋**)，解决办法是**限制自旋的次数，防止进入死循环**      
 - **只能保证一个共享变量的原子操作：** 对多个变量操作时，CAS无法保证操作的原子性，这时候可以用加锁的方式保证原子性，或者把多个共享变量合并成一个共享变量进行CAS操作  
-- **CAS操作的原子性问题：** 判断原内存值未改变后，在修改为新值前，被别的线程进行了修改(CAS操作本身的原子性问题)。 **解决办法：** CAS 在 Unsafe 中调用了 Atomic::cmpxchg 方法，最终在汇编语言的实现：cmpxchg=cas，`lock cmpxchg`指令，lock锁住了总线，作用是比较并交换操作数(Compare and Exchange)    
+- **CAS操作的原子性问题：** 判断原内存值未改变后，在修改为新值前，被别的线程进行了修改(CAS操作本身的原子性问题)。 **解决办法：** CAS 在 Unsafe 中调用了 Atomic::cmpxchg 方法，最终在汇编语言的实现：cmpxchg=cas，`lock cmpxchg`指令，lock锁住了缓存行/总线，作用是比较并交换操作数(Compare and Exchange)    
 - **ABA问题：**       
 
 ABA问题：线程1准备用CAS将变量的值由A替换为B，在此之前，线程2将变量的值由A替换为C，又由C替换为A，然后线程1执行CAS时发现变量的值仍然为A，所以CAS成功。但实际上这时的现场已经和最初不同了，尽管CAS成功，但可能存在潜藏的问题。
@@ -3888,8 +3942,8 @@ JSR内存屏障分为4种：
 - volatile读取 --> `LoadLoadBarrier` -->  `LoadStoreBarrier` : 即，volatile读完之后后面才能读和写
 
 **HotSpot对内存屏障的实现方式：**
-- `lock: addl`：lock锁总线(cpu到内存只有一条通道)，用于在多处理器中执行指令时对共享内存的独占使用。能够**将当前处理器对应缓存的内容刷新到内存**，并且**使其他处理器对应的缓存失效**，另外还提供了**有序的指令无法越过这个内存屏障**的作用
-- HotSpot没有针对不同的cpu优化，用锁总线的方式，效率低下
+- `lock: addl`：lock锁缓存行/总线(cpu到内存只有一条通道)，用于在多处理器中执行指令时对共享内存的独占使用。能够**将当前处理器对应缓存的内容刷新到内存**，并且**使其他处理器对应的缓存失效**，另外还提供了**有序的指令无法越过这个内存屏障**的作用
+- HotSpot没有针对不同的cpu优化，用锁缓存行/总线的方式，效率低下
 
 这里记录一下我遇到的一个坑      
 首先看没有volatile修饰的情况            
@@ -3930,11 +3984,7 @@ value: 2064104499
 ~~~
 显然我们会想到，没有volatile修饰，主线程中 flag 的改变对子线程不可见，所以子线程会陷入死循环
 结果也是如此    
-~~~java
-run: false
-value: 831286841
-value: 2064104499
-~~~
+
 
 接下来我们把flag修改为volatile修饰，我们期待子线程可以获得修改之后的flag，并跳出循环        
 
@@ -4329,15 +4379,17 @@ public class DemoCallable {
 ~~~
 
 ## 5. 线程的状态和控制
-### 5.1线程的状态        
+### 5.1 Java线程的六种状态
+由于JVM的跨平台特性，不同操作系统对线程状态的定义不同，JVM抽象出了6种状态，这6种状态在不同的系统中的实现有所不同
+
 - **初始态(NEW)：** 创建Thread对象，但还未调用start启动线程，线程处于初始态       
 - **运行态(RUNNABLE)：** 包括就绪态(ready)和运行中(running)两种状态       
-- **就绪态(READY)：** 获得了执行所需的所有资源，只要CPU分配执行权就能运行，所有就绪态线程存放在就绪队列中     
+    - 就绪态(READY)： 获得了执行所需的所有资源，只要CPU分配执行权就能运行，所有就绪态线程存放在就绪队列中     
 - **运行中(RUNNING)：** 获得CPU执行权，正在执行，同一个CPU同一时刻只能有一个运行态线程        
 - **阻塞态(BLOCKED)：** 请求排它锁失败时的状态        
 - **等待态(WAITING)：** 当前线程调用 `wait`, `join`, `park` 函数时，线程进入无限等待态，释放CPU执行权，释放资源(如锁)，等待被其他线程调用 `notify` 方法显示唤醒       
 - **超时等待态(TIMED_WAITING)：** 当运行中的线程调用 sleep(time), wait, join, parkNanos, parkUtil 时，进入该状态，释放CPU执行权和占有资源，与等待态的区别：无需等待被唤醒，到时间会由系统自动唤醒      
-- **终止态(TERMINATED)：** 运行结束  
+- 终止态(TERMINATED)： 运行结束  
 <center>
 
 ![线程的状态](https://s1.ax1x.com/2020/08/03/adSU9s.png) </center>
