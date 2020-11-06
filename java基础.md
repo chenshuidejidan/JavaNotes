@@ -185,7 +185,10 @@ Scanner是一个扫描器，它扫描数据都是去内存中一块缓冲区中�
   byte a = (bayte) 130;  00000000 00000000 00000000 10000010 变为10000010[补] 即11111110[原] = -126 
 
 ## 4. 字符串和字符串常量池
-- String是常量，不可变，为了效率和安全(jdk5以前用final提升效率，后摒弃)
+- String是常量，不可变，为了效率和安全
+
+![String的不变性](https://s1.ax1x.com/2020/11/04/B6owXF.png)
+
 - 字符串的分配，和其他的对象分配一样，耗费高昂的时间与空间代价，作为最基础的数据类型，大量频繁的创建字符串，极大程度地影响程序的性能
 
 - JVM为了提高性能和减少内存开销，在实例化字符串常量的时候进行了一些优化
@@ -198,6 +201,10 @@ Scanner是一个扫描器，它扫描数据都是去内存中一块缓冲区中�
   - 实现该优化的基础是因为字符串是不可变的，可以不用担心数据冲突进行共享
   - 运行时实例创建的全局字符串常量池中有一个表，总是为池中每个唯一的字符串对象维护一个引用,这就意味着它们一直引用着字符串常量池中的对象，所以，在常量池中的这些字符串不会被垃圾收集器回收
   
+- **jdk1.8的String底层采用char数组，jdk1.9开始用byte数组**，因为大多数字符都是Latin1(ISO-8859-1，8位编码，向下兼容ASCII码)，用一个字节存储即可，增加了一位标志位，对于Latin1以外的字符，使用两个字节存储
+
+- **String的String Pool是一个固定大小的HashTable(无重复)**，默认大小是1009(jdk6)、60013(jdk7)。放入String Pool的String非常多时就会Hash冲突严重，链表很长，调用String.intern()时性能大幅下降
+
 ### 4.1 字符串常量池的布局
 **jdk1.8开始，把永生代换成了元空间，字符串常量池从方法区移到了Java堆中**
 - jdk1.8取消了永生代，设立了元空间(详细见JVM篇)，由于永生代内存经常不够用，可能会发生内存泄漏。
@@ -221,16 +228,13 @@ System.out.println(str3 == str4 ); //false
 - **使用构造器new的是不在常量池中的字符串对象时：** new创建的字符串也会被放到字符串常量池中，实际上创建了2个对象
 ![字符串存储位置](https://s1.ax1x.com/2020/09/22/wOMmm6.jpg)
 
-### 4.2 字符串拼接的优化
 
-~~~java
-String s1 = "abc";
-String s2 = "ab" + "c";
-String s3 = "a" + "b" + "c";
-System.out.println(s1 == s2);  //true
-System.out.println(s1 == s3);  //true
-~~~
-- jdk1.8的编译器对于字符串常量的拼接做了优化，对于`"ab"+"c"`不会先创建"ab" 和 "c" 再创建"abc"，而是直接一步到位
+
+### 4.2 字符串拼接
+
+![字符串拼接](https://s1.ax1x.com/2020/11/04/B6jJAS.png)
+
+- jdk1.8的编译器对于字符串常量的拼接做了优化，**常量与常量的拼接结果在常量池，只要有一个是变量，结果就在堆中(非常量池区域)**
 
 ~~~java
 String s1 = "abc";
@@ -251,6 +255,8 @@ System.out.println(s1 == s3);  //false
 
 ### 4.3 intern方法
 - String.intern()是一个Native方法，它的作用是，**如果字符串常量池已经包含一个equals此String对象的字符串，则返回字符串常量池中这个字符串的引用，否则将当前String对象的引用地址(堆中)添加到字符串常量池中并返回。**
+
+- **intern() 确保字符串在内存中只有一份拷贝，节约内存空间，加快字符串操作任务的执行速度**：`String s = new String("abc").intern()` 这样字符串对象就可以被gc回收，只留下常量池中的字符串
 
 1. 字符串常量池中已经存在该字符串
 ~~~java
@@ -277,21 +283,66 @@ String s5 = s4.intern();           //s5还是s1的引用地址
 System.out.println(s4==s5);        //false
 ~~~
 
+- **在jdk1.6中，String.intern()方法调用后，如果String Table中没有该字符串，就会把该对象复制一份，放入String Table，返回String Table中的对象地址**
+- **在jdk1.7中，如果String Table中没有该字符串，会把对象的引用地址复制一份，放入String Table，并返回String Table中的引用地址**
 
 ### 4.4 String相关类
 - 当有少量连接操作时，使用String
 - 当单线程下有大量连接操作时，使用StringBuilder
 - 当多线程下有大量连接操作时，使用StringBuffer
 
-### 4.5 创建了多少个对象？
+**循环中拼接，使用StringBuilder，避免使用 “+” 频繁的创建StringBuilder对象，避免在字符串常量池产生大量无用的中间字符串，而且可以通过构造函数直接指定底层数组的大小，避免扩容**
+~~~java
+    @Test
+    public void test(){
+        long time1 = System.currentTimeMillis();
 
-- String str = new String(“abc”)创建了多少个实例？
+        String s = "";
+        for (int i = 0; i < 100000; i++) {
+            s+="a";
+        }
 
-类的加载和执行要分开来讲：
-创建了两个
-1、当加载类时，”abc”被创建并驻留在了字符创常量池中（如果先前加载中没有创建驻留过）。
-2、当执行此句时，因为”abc”对应的String实例已经存在于字符串常量池中，所以JVM会将此实例复制到会在堆（heap）中并返回引用地址。
+        long time2 = System.currentTimeMillis();
+        System.out.println(time2-time1); //4263
+    }
 
+    @Test
+    public void test2(){
+        long time1 = System.currentTimeMillis();
+
+        StringBuilder sb = new StringBuilder(10000);
+        for (int i = 0; i < 100000; i++) {
+            sb.append("a");
+        }
+
+        long time2 = System.currentTimeMillis();
+        System.out.println(time2-time1); //5
+    }
+~~~
+
+### 4.5 面试题
+
+1. `String s = new String("a")` 和 `String s = new String("a") + new String("b")` 分别创建了几个对象？
+
+![创建了几个对象](https://s1.ax1x.com/2020/11/04/Bc89X9.png)
+
+2. **intern() 的执行结果**
+~~~java
+        String s = new String("1");
+        s.intern(); //本来String Table就存在1，这句没用
+        String s2 = "1";
+        System.out.println(s==s2);
+
+        String s3 = new String("1") + new String("1"); //返回的是new String()，常量池不存在11
+        s3.intern();
+        String s4 = "11";
+        System.out.println(s3==s4);
+~~~
+
+s.intern() 由于new String("1")本来就会在字符串常量池中生成"1"，所以这句没用。s是堆中string对象，两个肯定不等
+
+在jdk6中，s3.intern() 相当于常量池中创建了一个新的对象"11"，也就有了新的地址，所以结果是false
+在jdk7中，s3.intern() 常量池没有创建对象“11”，而是创建了一个指向对空间中 new String("11") 的引用。所以结果是true
 
 # 数组
 ## 1. 初始化  
