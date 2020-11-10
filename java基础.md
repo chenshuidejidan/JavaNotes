@@ -2205,8 +2205,8 @@ JDK1.8的底层是数组+散列表+红黑树
 - **内存占用：** 如果CopyOnWriteArrayList经常要增删改里面的数据，经常要执行add()、set()、remove()的话，那是比较耗费内存的，这些增删改操作都要复制一个数组出来。
 - **数据一致性：** CopyOnWrite容器只能保证数据的**最终一致性**，不能保证数据的实时一致性。
 
-### 8.3 CopyOnWriteSet
-- `CopyOnWriteSet`就是用`CopyOnWriteArrayList`来实现的
+### 8.3 CopyOnWriteArraySet
+- `CopyOnWriteArraySet`就是用`CopyOnWriteArrayList`来实现的
 ~~~java
     private final CopyOnWriteArrayList<E> al;
 ​
