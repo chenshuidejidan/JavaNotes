@@ -6,6 +6,7 @@
 堆内存里的东西都有一个地址值：16进制   
 堆内存里的数据都有默认值，规则：  
     整数（0）   浮点数（0.0）   字符（'\u0000'）    布尔(false)       引用类型（null）
+
 ## 3.方法区(Method area)：存储.class相关信息，包含方法的信息
 ## 4.本地方法栈(Native method stack)：与操作系统相关
 ## 5.寄存器(pc Register)：CPU
@@ -574,8 +575,6 @@ A的构造函数
   **局部内部类什么都不能写**（但并不是default）
 1. 成员内部类: 
 
-
-
 - 内用外可以随意使用，外用内需要有内部类的对象
 - 可以在外部类的方法中创建内部类的对象调用内部类方法，实现通过外部类的方法调用内部类的方法
 - 直接访问： 外部类.内部类 = new 外部类().new 内部类()
@@ -614,7 +613,7 @@ public class OuterClass {
 
     修饰符 返回值类型 方法名(参数){
 
-        calsss 类名称{  //局部内部类，定义在方法中
+        class 类名称{  //局部内部类，定义在方法中
             ...
         }
     }
@@ -1158,7 +1157,14 @@ getClass().getName() + '@' + Integer.toHexString(hashCode());
     }
 ~~~
 
+### 8.3 clone()方法和深浅拷贝
+
+- **浅拷贝**：被复制对象的所有变量都含有与原来的对象**相同的值**,而所有的对其他对象的**引用仍然指向原来的对象**.换言之,浅拷贝仅仅复制所考虑的对象,而不复制它所引用的对象。`Object.clone()`方法默认就是浅拷贝
+- **深拷贝**：被复制对象的所有变量都含有与原来的对象相同的值.而那些引用其他对象的变量将指向被复制过的新对象.而不再是原有的那些被引用的对象.换言之.深拷贝把要复制的对象所引用的对象都复制了一遍.  通过重写`Object.clone()`方法来进行深拷贝  
+- **序列化实现深拷贝**：序列化的方式属于深拷贝
+
 ## 9. 时间相关类
+
 ### 9.1 Date类: java.util.Date
 
 - 时间原点：1970年1月1日00：00：00(中国+8小时)
@@ -1693,7 +1699,7 @@ public class ArrayDeque<E> extends AbstractCollection<E>
 - 优先级队列底层通过堆实现 **(完全二叉树实现的小顶堆)**
 
 - 队列的头是指定顺序的最后一个元素 poll, remove, peek, element访问的都是队列头部
- 
+
 - 队列使用场景： Top K 问题、维护数据流中的中位数  
 
 
@@ -2009,7 +2015,7 @@ public class LinkedHashMap<K,V>
     extends HashMap<K,V>  //继承了HashMap
     implements Map<K,V>
 {...}
-~~~ 
+~~~
 - 特点：插入有序，允许null，不同步    
 - 底层是散列表和双向链表
 - 构造方法：
@@ -2160,6 +2166,7 @@ JDK1.8的底层是数组+散列表+红黑树
 #### 8.2.1 基本结构
 - 用到了可重入锁ReentrantLock
   
+
 ![CopyOnWriteArrayList](https://s1.ax1x.com/2020/10/20/0zzk5T.png)
 
 #### 8.2.2 常用方法的实现
@@ -2259,14 +2266,16 @@ JDK1.8的底层是数组+散列表+红黑树
 
 ### 2.2 常见的 CheckedException 举例
 - 程序不能直接控制的无效外界情况(用户输入，数据库问题，网络异常，文件丢失等)，需要`try...catch`处理或`throws`声明抛出    
-`NoSuchFieldException` : 请求的变量不存在     
-`NoSuchMethodException` : 请求的方法不存在      
-`IllegalAccessException` : 不允许访问某个类的异常      
-`ClassNotFoundException` ： 应用程序试图加载类时，找不到相应的类，抛出该异常    
-`InterruptedException` : 一个线程被另一个线程中断时抛出该异常    
-`ServletException`    
-`SQLException`      
-`IOException`
+  `NoSuchFieldException` : 请求的变量不存在     
+  `NoSuchMethodException` : 请求的方法不存在      
+  `IllegalAccessException` : 不允许访问某个类的异常      
+  `ClassNotFoundException` ： 应用程序试图加载类时，找不到相应的类，抛出该异常    
+  `InterruptedException` : 一个线程被另一个线程中断时抛出该异常    
+  `ServletException`    
+  `SQLException`      
+  `IOException`
+
+  `FileNotFoundException`
 
 ### 2.3 throws和throw关键字   
 - `throws` 在方法尾部，声明该方法会抛出这种类型的异常，使它的调用者知道要捕获这个异常     
