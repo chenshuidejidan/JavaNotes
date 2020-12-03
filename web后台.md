@@ -632,7 +632,7 @@ public class Demo10DownloadServlet extends HttpServlet {
 - 会话：一次会话中包含了多次请求和响应。一次会话从浏览器第一次给服务器资源发送请求，会话建立开始，直到有一方断开为止
 - 服务器和客户端在一次会话中的多次请求间进行共享数据            
 - 客户端会话技术：Cookie
-- 服务器端绘画技术：Session
+- 服务器端会话技术：Session
 
 ## 2. 客户端会话技术Cookie
 

@@ -1966,7 +1966,7 @@ static final float DEFAULT_LOAD_FACTOR = 0.75f;
 1. 进行哈希值的扰动，获取新的哈希值
 2. 判断table 是否为空，或者长度是否为0，是则 resize 扩容，这次resize只是起一个初始化的作用
 3. 根据哈希值计算再table中的索引`i = (n - 1) & hash`，如果 `table[i]==null` 则直接添加新的节点到tbale[i]
-4. 如果 `table[i]!=null` ，则判断 table[i] 的头节点是否欲插入节点相同，有则直接覆盖value
+4. 如果 `table[i]!=null` ，则判断 table[i] 的头节点是否与插入节点相同，有则直接覆盖value
 5. 如果table[i]中没有相同节点，则判断是不是红黑树节点，如果是红黑树节点，则在红黑树中添加此Entry
 6. 如果不是红黑树，遍历链表，统计长度，同时判断每个节点是否和欲插入节点相同，是则直接覆盖，否则插入到尾部，然后判断链表长度是否超过8，如果超过8则转为红黑树存储
 7. 最后判断是否超过阈值`threshold`，超过则扩容
@@ -2086,10 +2086,10 @@ protected boolean removeEldestEntry(Map.Entry<K,V> eldest) {
 - 检索方法不用加锁，get方法是非阻塞的
 
 JDK1.7的底层是segments+HashEntry数组        
-Segment继承了`ReentrantLock`,每个片段都有了一个锁，叫做“锁分段”
+Segment继承了`ReentrantLock`,每个片段都有了一个锁，叫做“分段锁”
 ![ConcurrentHashMap](https://s1.ax1x.com/2020/10/19/0zZujK.png)
 
-JDK1.8的底层是数组+散列表+红黑树
+JDK1.8的底层是数组+散列表+红黑树，并发访问的时候只对单独的桶进行加锁，锁的粒度更细
 ![ConcurrentHashMap](https://s1.ax1x.com/2020/10/19/0z89wq.png)
 使用table数组来存储Node
 
