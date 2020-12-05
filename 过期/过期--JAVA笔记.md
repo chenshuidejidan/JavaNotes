@@ -46,18 +46,18 @@
 
 
 >1. data segment：存放静态变量、字符串常量
- 
+
 >1. stack(栈)：存放局部变量
 >1. heap(堆)：存放new出来的东西
 ##Java变量的分类
 * 按声明的位置划分：**局部变量**(方法或语句块内部定义的变量)、**成员变量**(方法外部、类的内部定义的变量)。**类外面不能有变量的声明**。  
 **变量作用域只在它所在的那个大括号里**
- 
+
 * 按所属的数据类型划分：基本数据类型、引用数据类型  
 ### Java的数据类型
 > * 基本数据型
 >>数值型：整数类型(byte,short,int,long)、浮点类型(float,double)
- 
+
 >>字符型(char)
 
 >>布尔型(boolean)
@@ -72,15 +72,15 @@
 
 * 整数类型  
   1. **三种表示形式**：  
-    十进制整数：12  
-    八进制整数：以0开头，如012。  
-    十六进制整数：以0x或0X开头，如0x12。
+      十进制整数：12  
+      八进制整数：以0开头，如012。  
+      十六进制整数：以0x或0X开头，如0x12。
   2. **整形常量默认为int类型，声明long时必须在常量后加'l'或者'L'如：int i1=600;long i2=88888888l;**
   3. **byte 8位1个字节(最大128-1)  short 2字节(最大32768-1)  int 4字节  long 8字节皆表示带符号的数**
 * 浮点类型  
   1. **两种表示形式**：  
-    十进制数：  
-    科学计数法：3.14e2
+      十进制数：  
+      科学计数法：3.14e2
   2. **浮点数默认为double型,float型后面加f或者F。double d=12345.6;  float f=12.3f;**  
      **float占4字节,double占8字节**
 ###数据类型的转换  
@@ -90,7 +90,7 @@
 	**byte,short,char之间不会相互转换，计算时首先会转换成int**    
 	容量大的往容量小的转换时要加强制转换符，但可能会使精度降低或溢出。
 	多种类型混合运算时，系统先将所有数据转换成最大的哪一种数据类型运算  
- 
+
 * 强制转换:   
 	**注意自动转换对变量和对常量的区别**   
 	~~~java
@@ -104,7 +104,7 @@
 	但是如 byte a = 3+4;编译器先做3+4算出来的结果若不溢出则直接赋予a，而不会自动转换，溢出则报错。
 * 强制转换时，大转小，直接丢弃高位，低位按有符号数的补码算。如  
 	byte a = (bayte) 130;  00000000 00000000 00000000 10000010 变为10000010[补] 即11111110[原] = -126 
-   
+  
 ------
 ## 运算符  
 - 算数运算符:+,-,*,/,%(求余),++,--
@@ -156,7 +156,7 @@ public class TestSwitch {
 	}
 }
 ~~~
- 
+
 ## 循环语句
 ### for循环语句  
 * for(表达式1;表达式2;表达式3;){语句;}
@@ -192,7 +192,7 @@ public class TestSwitch {
 	array是数组在堆内存的首地址值，array[i]才是数组中元素的索引     
 	![avatar](https://s2.ax1x.com/2019/03/20/AKxQBT.png)  
 	**系统给出的初值均为0**  
- 
+
 * **静态初始化**：只给出初值，系统给出长度：**int[] array = new int[]{1,2,3}** 或者 **int[] array = {1,2,3};**   
     定义时仍然被初始化为0 (new的过程)，之后立马被赋值！    
 * **注意：**不要同时动态和静态进行：**int array = new int[3]{1,2,3};//错误**  
@@ -221,7 +221,7 @@ for(int i = 0; i < array.length; i++){
        System.out.println(array[i]);     
 }
 ~~~
-   
+
 * 函数遍历  
 ~~~java
 public static void printArray(int[] array){
@@ -235,7 +235,7 @@ public static void printArray(int[] array){
 	}
 }
 ~~~
-     
+
 * 二维数组的遍历 
 ~~~java
 public static void printArray(int[][] array){
@@ -246,7 +246,7 @@ public static void printArray(int[][] array){
 		System.out.println();
 	}
 }
-~~~   
+~~~
 
 
 
@@ -263,7 +263,7 @@ public static void printArray(int[][] array){
 
 * **类之间的关系**：关联、继承(..是一种..)、聚合(..是..的一部分，分聚集和组合)、实现、多态
 * 对象是Java程序的核心，对象可以看成是静态属性(成员变量)和动态属性(方法)的封装体，在类中定义该类对象所应具有的成员变量及方法。 
- 
+
 * **匿名对象**：调用一次方法，匿名对象不必使用栈内存，调用完毕就可以被垃圾回收器回收。 new Student.show();   
 * 匿名对象可以直接作为实际参数传递 new StudentDemo().method(new Student());    
 
@@ -278,7 +278,7 @@ public static void printArray(int[][] array){
 * 引用对象的成员变量：对象(引用).成员变量  
 * 调用对象的方法：对象(引用).方法  
 * **同一个类每个对象有不同的成员变量存储空间，但是每个对象共享该类的方法**   
- 
+
 * **封装**:隐藏对象的属性和实现细节，仅对外提供公共方法来访问，提高了代码的复用性和安全性    
 * 封装的常见应用：把成员变量用private修饰，提供对应的getXx()和setXx()方法  
 
@@ -299,7 +299,7 @@ public static void printArray(int[][] array){
 		}  
 
 
- 
+
 * **没有定义构造方法时,编译器为类自动添加 类名(){} 的空构造方法，定义时使用 Person = new Person(); 的形式**   
 
 ### 工具类
@@ -323,7 +323,7 @@ public static void printArray(int[][] array){
 			* 这是私有构造
 			*/
 			private ArrayTool(){}
-
+	
 			/**
 			* 这是遍历数组的方法，遍历后的格式是：元素1, 元素2, 元素3, ...
 			* @param arr 这是要被遍历的数组
@@ -331,7 +331,7 @@ public static void printArray(int[][] array){
 			public static void printArray(int[] arr) {
 			....
 			}
-	
+		
 			/**
 			* 获取指定元素在数组中第一次出现的索引，如果元素不存在，就返回-1
 			* @param arr 被查找的数组 
@@ -344,7 +344,7 @@ public static void printArray(int[][] array){
 		}   
 
 
-   
+
 ### 代码块  
 * 局部代码块：局部位置，用于限定变量的生命周期   
 * 构造代码块：在类中的成员位置，用{}括起来的代码块，**每次调用构造方法执行前都会先执行构造代码块**，可以把多个构造方法中的共同代码放到一起，对对象进行初始化   
@@ -355,7 +355,7 @@ public static void printArray(int[][] array){
 * **类名的首字母大写**
 * **变量名和方法名的首字母小写**
 * **驼峰规则**:名字里后面每个单词首字母大写   
- 
+
 ### 方法的重载(OverLoad)  
 * 方法的重载是指一个类中可以定义有相同的名字，但参数不同(数量或者参数类型不同)的多个方法。调用时，会根据不同的参数表选择对应的方法  
 * **构造方法也可以重载**   
@@ -378,19 +378,20 @@ public static void printArray(int[][] array){
 	4. 一个非静态内部类不能脱离外部类的对象被创建，一个非静态内部类可以访问外部类的数据和方法，因为他就在外部类里面   
 	5. **一般来说，内部类用private或public static修饰，private保证数据安全性，不让外界直接访问，static让数据访问更方便**    
 	6. **局部内部类 访问局部变量，需要局部变量被声明为final最终变量**
+		
 		* 因为局部变量会随着方法的调用完毕而消失，这时局部对象并没有立马从堆内存中消失，还要继续使用那个变量，为了让数据还能继续使用，只能用final修饰，这样再堆内存里面存储的其实是一个常量值         
 	7. 非静态内部类和静态内部类的创建    
 	
 			//静态内部类的创建，不能通过外部类的对象创建，而只能通过外部类创建内部对象
-			OuterClass.StatcInnerClass inner1 = new OuterClass.StaticInnerClass();
-
+		OuterClass.StatcInnerClass inner1 = new OuterClass.StaticInnerClass();
+	
 			//为了创建非静态内部类，我们需要外部类的实例  
 			OuterClass outer = new OuterClass();
-			OuterClass.InnerClass inner2 = outer.new InnerClass();
-
+		OuterClass.InnerClass inner2 = outer.new InnerClass();
+		
 			//也可以一步创建非静态内部类
 			OuterClass.InnerClass inner3 = new OuterClass().new InnweClass();
-		   
+	
 * **static修饰的成员随着类的加载而加载，优先于对象存在**   
 * static不能修饰局部变量：**没有静态局部变量**   
 * **为什么main前面要加static**：static关键字，告知编译器main函数是一个静态函数。也就是说main函数中的代码是存储在静态存储区的，静态方法在内存中的位置是固定的，即当定义了类以后这段代码就已经存在了。如果main()方法没有使用static修饰符，那么编译不会出错，但是如果你试图执行该程序将会报错，提示main()方法不存在。因为包含main()的类并没有实例化（即没有这个类的对象）。而使用static修饰符则表示该方法是静态的，不需要实例化即可使用。    
@@ -423,11 +424,11 @@ public static void printArray(int[][] array){
 
 		import com.java.* //引入com/java/下的所有的类   
 		import com.java.Cat //引入com/java/下的Cat类
- 
+
 
 * **class文件的最上层包的父目录必须位于classpath下**   
 * **package必须位于第一条可执行语句，且只能由一个，import必须位于class之前，可以有多个**
-   
+  
 ### J2SDK中主要的包   
 * java.lang 包含java语言的核心类，如String、Math、Integer、System和Thread，提供常用功能
 * java.awt 包含构成抽象窗口工具集的多个类，用来构建和管理应用程序的图形用户界面(GUI)  
@@ -483,7 +484,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 
 * 当new一个子类对象时，会调用子类的构造函数,在子类的构造函数中，第一条语句默认会执行**super();**这条语句**调用父类的无参构造函数** (因为会继承父类的变量,所以有必要调用其构造函数,因为有可能构造函数内会对其变量进行初始化)，如果父类的无参构造函数不存在就会出现编译时错误(如果父类手动重写了一个有参构造函数，那么就不存在默认的无参构造函数了，也需要再显示写一个)。但是可以**手动写super(参数...)**显示调用父类的有参构造函数，这样只要父类有对应的构造函数就不会报错了。
 
- 
+
 * 若子类直接继承父类，而父类定义中把带参构造函数相关的变量定义为私有，如   
 
 		class Person{			
@@ -513,7 +514,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 				super(name, age); //显示调用父类的构造方法
 			}
 		}
-   
+
 * 例题：
 
 		class Fu {
@@ -599,7 +600,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
     	3. 普通成员变量
     	4. 构造代码块
     	5. 构造方法  
-    	 
+  
     2.有继承时，初始化类的执行顺序：    
 
 		1. 父类的静态成员变量
@@ -619,6 +620,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 * 可以使用  **引用变量 instanceof 类名** 来判断该引用型变量所指向的对象是否属于该类或该类的子类
 * 子类的对象可以当作基类的对象来使用称作向上转型，反之称为向下转型
   
+
 ![instanceof](https://pic2.zhimg.com/v2-767f3a58c370f7f505aeb6619d98c98d_b.png)
 
 ### 多态  
@@ -647,7 +649,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 
 * 对象的转型问题：
 	1. **向上转型**：
-	    
+	   
 			Fu f = new Zi();   
 
 	2. **向下转型**： 
@@ -672,7 +674,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 			public abstract void run(); //没有方法体，正确的写法
 			public Animal(){}  //抽象类的构造方法
 		}  
- 
+
 * abstract不能和下列关键字共存
 	> private   (private修饰的方法是私有方法，不能被子类访问，不能重写)    
 	> final		(final也不能被重写)   
@@ -680,7 +682,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 
 ## 接口interface  
 * 接口是抽象方法和常量值的定义的集合
- 
+
 		interface 接口名{}   
   
 * 接口的子类
@@ -695,7 +697,6 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 				public void eat(){...}
 			}
 	
-
 * 本质上讲，接口是一种特殊的抽象类，**只包含常量(final)和方法的定义（全是抽象方法,不用加abstract）**，而没有变量和方法的实现，且**没有构造方法**，成员方法均默认为抽象方法，不能有方法体      
 
 		public interface Runner{
@@ -744,7 +745,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 ### toString方法
 
     public String toString(); //返回对象的字符串表示形式
-	//等价于getClass().getName() + '@' + Integer.toHexString(hashCode());  
+    //等价于getClass().getName() + '@' + Integer.toHexString(hashCode());  
 
 * **可以根据需要在用户自定义类型中重写toString()方法**：把该类的所有成员变量值组成返回即可   
 
@@ -778,7 +779,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 			}
 		}
 	}     
- 
+
 * **还是自动生成的好！！**
 
 ## Scanner类
@@ -787,7 +788,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 
 ### Scanner的构造方法
 * **Scanner(InputStream source);** 
- 
+
 		Scanner(System.in);
 
 ### hasNextXxx 方法
@@ -808,7 +809,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 		int a = sc.nextInt();
 		Scanner sc0 = new Scanner(System.in);
 		String s = sc0.nextLine();
-
+	
 		//2.将所有的数据都按String接收，再根据需要进行转换
 		Scanner sc = new Scanner(System.in);
 		String a1 = sc.nextLine();
@@ -850,7 +851,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 	
 			System.out.println(s3 == "hello" + "world");// true
 			System.out.println(s3.equals("hello" + "world"));// true
-	
+		
 			// 通过反编译看源码，我们知道这里已经做好了处理。
 			// System.out.println(s3 == "helloworld");
 			// System.out.println(s3.equals("helloworld"));
@@ -865,7 +866,7 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 * **boolean isEmpty();**  //判断字符串内容是否为空   
 
 ### String类的获取功能 
- 
+
 * **int length();** //获取指定字符串的长度    
 * **char charAt(int index);** //获取指定索引位置的字符   
 * **int indexOf(int ch);** //获取指定字符在次字符串中那个第一次出现处的索引(既可以int的97也可以char的'a')    
@@ -905,14 +906,6 @@ Java的权限修饰符置于类的成员定义前，用来限定其他对象对�
 * Java异常是指**运行期**出现的错误
 * **观察错误的名字和行号最重要**   
 * Java程序执行过程中如出现异常事件，可以生成一个异常类对象，该异常对象封装了异常事件的信息并将被提交给Java运行时系统，这个过程成为**抛出(throw)异常**  
-###try{}catch(){}语句
-<pre/>try{
-	System.out.println(2/0);
-}catch(ArithmeticException ae){
-	//System.out.println("系统维护中...");
-	ae.printStackTrace();
-}
-</pre>   
 ## 异常的分类
 ![异常的分类](https://pic1.zhimg.com/v2-1aafd1d72be6ebf3695aa2aead4defdc_b.png)    
 

@@ -42,17 +42,17 @@ dr-xr-xr-x.   5 root root 4096 Feb 18  2020 boot
 - 接下来的字符三个一组，分别表示拥有者权限、群组权限、其他人权限
 
 
-  |权限|<center>对文件的作用</center>|
-  |:---:|---|
-  |r|可读取文件中的实际内容，可对文件执行cat、more、less、head、tail等命令查看|
-  |w|可编辑、新增、修改文件内容，可使用vim、echo等修改，但不能删除文件|
-  |x|文件具有被系统执行的权限，文件能否执行由x权限决定，跟后缀名没有必然的关系|
+|权限|<center>对文件的作用</center>|
+|:---:|---|
+|r|可读取文件中的实际内容，可对文件执行cat、more、less、head、tail等命令查看|
+|w|可编辑、新增、修改文件内容，可使用vim、echo等修改，但不能删除文件|
+|x|文件具有被系统执行的权限，文件能否执行由x权限决定，跟后缀名没有必然的关系|
 
-  |权限|<center>对文件夹的作用</center>|
-  |:---:|---|
-  |r|可读取目录结构列表的权限，可以使用ls命令查看目录中的内容|
-  |w|可以在此目录下新建、删除、移动、更名文件和文件夹，可使用touch、rm、cp、mv等命令|
-  |x|可以进入目录，也就是说可以使用cd命令，没有x权限的目录无法进入|
+|权限|<center>对文件夹的作用</center>|
+|:---:|---|
+|r|可读取目录结构列表的权限，可以使用ls命令查看目录中的内容|
+|w|可以在此目录下新建、删除、移动、更名文件和文件夹，可使用touch、rm、cp、mv等命令|
+|x|可以进入目录，也就是说可以使用cd命令，没有x权限的目录无法进入|
   - rwx分别为 4 2 1分
   - 操作所需最低权限：**读取文件内容 r**、**修改文件内容 rw**、**执行文件 rx**、**删除文件，需要文件所在目录具有 wx**
 - 第二栏表示表示有多少名连接到此节点
@@ -371,17 +371,17 @@ mysql> flush privileges;
 
 |命令|含义|
 |---|---|
-|yum  clean all         |          清空缓存信息
-|yum  list              |          列出所有包的信息
-|yum  list  httpd       |          查看 httpd 是否安装
-|yum  info httpd        |          显示 httpd 包的详细具体信息
-|yum install httpd   -y |          安装 httpd 包
-|yum remove httpd  -y   |          卸载 httpd 包
-|yum search 关键词         |      根据关键词，在已发现的repo源中搜索包含关键词的rpm包
-|yum provides 命令        |         根据命令，在已发现的repo源中搜索安装指令的rpm包
-|yum history  list/info/undo/redo number|   history可以列出，查看，重装，反安装对应的包，但是是以yum指令的操作顺序为依据的，所以需要加指定的数字执行
-|yum update -y    |                    升级所有包同时也升级软件和系统内核
-|yum upgrade  -y  |                   只升级所有包，不升级软件和系统内核
+|yum  clean all         |          清空缓存信息|
+|yum  list              |          列出所有包的信息|
+|yum  list  httpd       |          查看 httpd 是否安装|
+|yum  info httpd        |          显示 httpd 包的详细具体信息|
+|yum install httpd   -y |          安装 httpd 包|
+|yum remove httpd  -y   |          卸载 httpd 包|
+|yum search 关键词         |      根据关键词，在已发现的repo源中搜索包含关键词的rpm包|
+|yum provides 命令        |         根据命令，在已发现的repo源中搜索安装指令的rpm包|
+|yum history  list/info/undo/redo number|   history可以列出，查看，重装，反安装对应的包，但是是以yum指令的操作顺序为依据的，所以需要加指定的数字执行|
+|yum update -y    |                    升级所有包同时也升级软件和系统内核|
+|yum upgrade  -y  |                   只升级所有包，不升级软件和系统内核|
 
 ### 8. rpm包管理
 |命令|含义|
@@ -389,9 +389,9 @@ mysql> flush privileges;
 |rpm -qa|查询所有已安装软件的rpm包信息，列出包的版本|
 |rpm  -ivh  包.rpm|i表示安装，v表示显示安装过程，h表示以‘#’作为进度，显示安装进度|
 |rpm -e --nodeps 包名|卸载|
-|rpm  -q httpd   |  查看 httpd 是否安装
-|rpm -qi  httpd  |  列出 httpd 软件的详细信息
-|rpm -qc httpd   |  查看 httpd 的配置文件目录
-|rpm  -ql  httpd |  查看 httpd 所包含的文件
-|whereis  httpd  |  查看httpd的安装路径和可执行文件路径
+|rpm  -q httpd   |  查看 httpd 是否安装|
+|rpm -qi  httpd  |  列出 httpd 软件的详细信息|
+||rpm -qc httpd   |  查看 httpd 的配置文件目录|
+|rpm  -ql  httpd |  查看 httpd 所包含的文件|
+|whereis  httpd  |  查看httpd的安装路径和可执行文件路径|
 
