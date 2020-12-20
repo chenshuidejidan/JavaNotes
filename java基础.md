@@ -208,7 +208,7 @@ Scanner是一个扫描器，它扫描数据都是去内存中一块缓冲区中�
 
 ### 4.1 字符串常量池的布局
 **jdk1.8开始，把永生代换成了元空间，字符串常量池从方法区移到了Java堆中**
-- jdk1.8取消了永生代，设立了元空间(详细见JVM篇)，由于永生代内存经常不够用，可能会发生内存泄漏。
+- jdk1.8取消了永生代，设立了元空间(详细见JVM篇)，由于永生代内存经常不够用，可能会发生OOM。
 
 ![1.7内存](https://s1.ax1x.com/2020/09/22/wOuDUg.png)
 ![1.8内存](https://s1.ax1x.com/2020/09/22/wOur5Q.jpg)
@@ -227,7 +227,7 @@ System.out.println(str3 == str4 ); //false
 - **直接赋值创建String对象** 会直接在常量池中创建对象
 - **使用构造器new的是在常量池中的字符串对象时：** 字符串常量池中已经存在相同内容的字符串常量，所以会在堆中创建该字符串对象的引用，然后将这个引用指向常量池中已经存在的字符串，str4!=str5的原因是比较的实际上是堆上的地址，当然不同了。
 - **使用构造器new的是不在常量池中的字符串对象时：** new创建的字符串也会被放到字符串常量池中，实际上创建了2个对象
-![字符串存储位置](https://s1.ax1x.com/2020/09/22/wOMmm6.jpg)
+![字符串存储位置](picture/java基础/字符串存储位置.png)
 
 
 
@@ -1101,6 +1101,7 @@ ThisEscapeSon
 5. **java9接口中允许定义私有方法**
 - 普通私有方法可以解决多个默认方法之间重复代码的问题 private void 方法名(){...}
 - 静态私有方法可以解决多个静态方法之间重复代码的问题 private static void 方法名(){...}
+
 ~~~java 
 public interface MyInterface {
     public static void methodS1(){
@@ -1508,7 +1509,101 @@ public class 类名<E>{
 `? extends E` : 上限限定，使用的泛型只能是E类型的子类和自身   
 `? super E` : 下限限定，使用的泛型只能是E类型的父类和自身   
 
+### 3.4 类型擦除
+
+Java的泛型是伪泛型，这是因为Java在编译期间，所有的泛型信息都会被擦掉
+
+如在代码中定义`List<Object>`和`List<String>`等类型，在编译后都会变成`List`，JVM看到的只是List，而由泛型附加的类型信息对JVM是看不到的
+
+- 例1：在这个例子中，我们定义了两个`ArrayList`数组，不过一个是`ArrayList<String>`泛型类型的，只能存储字符串；一个是`ArrayList<Integer>`泛型类型的，只能存储整数，最后，我们通过`list1`对象和`list2`对象的`getClass()`方法获取他们的类的信息，最后发现结果为`true`。说明泛型类型`String`和`Integer`都被擦除掉了，只剩下原始类型
+
+~~~java
+public class Test {
+    public static void main(String[] args) {
+        ArrayList<String> list1 = new ArrayList<String>();
+        list1.add("abc");
+        ArrayList<Integer> list2 = new ArrayList<Integer>();
+        list2.add(123);
+
+        System.out.println(list1.getClass() == list2.getClass());
+    }
+}
+~~~
+
+
+
+- 例2：通过反射添加其它类型元素，在程序中定义了一个`ArrayList`泛型类型实例化为`Integer`对象，如果直接调用`add()`方法，那么只能存储整数数据，不过当我们利用反射调用`add()`方法的时候，却可以存储字符串，这说明了`Integer`泛型实例在编译之后被擦除掉了，只保留了原始类型
+
+~~~java
+public class Test {
+    public static void main(String[] args) throws Exception {
+        ArrayList<Integer> list = new ArrayList<Integer>();
+        list.add(1);  //这样调用 add 方法只能存储整形，因为泛型类型的实例为 Integer
+        list.getClass().getMethod("add", Object.class).invoke(list, "asd");
+
+        for (int i = 0; i < list.size(); i++) {
+            System.out.println(list.get(i));
+        }
+    }
+}
+~~~
+
+
+
+
+
+### 3.5 类型擦除引起的问题
+
+Q: 既然说类型变量会在编译的时候擦除掉，那为什么我们往 `ArrayList<String>` 创建的对象中添加整数会报错呢？不是说泛型变量String会在编译的时候变为Object类型吗？为什么不能存别的类型呢？既然类型擦除了，如何保证我们只能使用泛型变量限定的类型呢？
+
+A: Java编译器是通过先检查代码中泛型的类型，然后在进行类型擦除，再进行编译
+
+
+
+
+
+在Java中，像下面形式的引用传递是不允许的:
+
+~~~java
+ArrayList<String> list1 = new ArrayList<Object>(); //编译错误  
+ArrayList<Object> list2 = new ArrayList<String>(); //编译错误
+~~~
+
+
+
+我们先看第一种情况，将第一种情况拓展成下面的形式：
+
+~~~java
+ArrayList<Object> list1 = new ArrayList<Object>();  
+list1.add(new Object());  
+list1.add(new Object());  
+ArrayList<String> list2 = list1; //编译错误
+~~~
+
+实际上，在第4行代码的时候，就会有编译错误。那么，我们先假设它编译没错。那么当我们使用`list2`引用用`get()`方法取值的时候，返回的都是`String`类型的对象（上面提到了，类型检测是根据引用来决定的），可是它里面实际上已经被我们存放了`Object`类型的对象，这样就会有`ClassCastException`了。所以为了避免这种极易出现的错误，Java不允许进行这样的引用传递。（这也是泛型出现的原因，就是为了解决类型转换的问题，我们不能违背它的初衷）。
+
+再看第二种情况，将第二种情况拓展成下面的形式：
+
+~~~java
+ArrayList<String> list1 = new ArrayList<String>();  
+list1.add(new String());  
+list1.add(new String());
+
+ArrayList<Object> list2 = list1; //编译错误
+~~~
+
+没错，这样的情况比第一种情况好的多，最起码，在我们用`list2`取值的时候不会出现`ClassCastException`，因为是从`String`转换为`Object`。可是，这样做有什么意义呢，泛型出现的原因，就是为了解决类型转换的问题。我们使用了泛型，到头来，还是要自己强转，违背了泛型设计的初衷。所以java不允许这么干。再说，你如果又用`list2`往里面`add()`新的对象，那么到时候取得时候，我怎么知道我取出来的到底是`String`类型的，还是`Object`类型的呢？
+
+**所以，要格外注意，泛型中的引用传递的问题。**
+
+
+
+
+
+
+
 ## 4. Collections工具类
+
 不属于Java框架继承树上的内容，是单独的分支，只包含静态方法，操作或返回 `Collection` 
 
 ### 4.1 包装
@@ -1970,7 +2065,7 @@ static final float DEFAULT_LOAD_FACTOR = 0.75f;
 5. 如果table[i]中没有相同节点，则判断是不是红黑树节点，如果是红黑树节点，则在红黑树中添加此Entry
 6. 如果不是红黑树，遍历链表，统计长度，同时判断每个节点是否和欲插入节点相同，是则直接覆盖，否则插入到尾部，然后判断链表长度是否超过8，如果超过8则转为红黑树存储
 7. 最后判断是否超过阈值`threshold`，超过则扩容
-8. `treeifyBin`,是一个链表转树的方法，**但不是所有的链表长度为8后都会转成树**，还需要判断存放key值的数组桶长度是否大于64 `MIN_TREEIFY_CAPACITY`。如果小于则扩容，扩容后链表上的数据会被拆分散列的相应的桶节点上，也就把链表长度缩短了
+8. `treeifyBin`,是一个链表转树的方法，**但不是所有的链表长度为8后都会转成树**，还需要判断桶长度是否大于64 `MIN_TREEIFY_CAPACITY`。如果小于则扩容，扩容后链表上的数据会被拆分散列的相应的桶节点上，也就把链表长度缩短了
 
 - 关于插入，**在java8之前是头插法**，信赖的值取代原有的值，原有的值直接被顺推到链表中去了，因为作者觉得后来的值被查找的可能性更大一些，以此提升查找的效率     
 但是**java8开始都采用尾部插入**了，原因是要扩容（当长度达到Capacity*loadFactor时，插入引起碰撞则扩容），扩容需要新建一个2倍于原数组长度的数组，再遍历Entry数组，把每个Entry重新Hash到新的数组。但是**采用头插的话，resize时链表刚好翻转，且形成环状**，使用尾插则可以一直保持链表的形状不变，且可以避免形成环
@@ -2085,9 +2180,12 @@ protected boolean removeEldestEntry(Map.Entry<K,V> eldest) {
 - **ConcurrentHashMap不允许key和value为null**
 - 检索方法不用加锁，get方法是非阻塞的
 
-JDK1.7的底层是segments+HashEntry数组        
+JDK1.7的底层是**segment数组+HashEntry数组+链表**        
 Segment继承了`ReentrantLock`,每个片段都有了一个锁，叫做“分段锁”
-![ConcurrentHashMap](https://s1.ax1x.com/2020/10/19/0zZujK.png)
+
+ConcurrnetHashMap 由很多个 Segment 组合，而每一个 Segment 是一个类似于 HashMap 的结构，所以每一个 HashMap 的内部可以进行扩容。但是 Segment 的个数一旦**初始化就不能改变**，默认 Segment 的个数是 16 个，可以认为 ConcurrentHashMap 默认支持最多 16 个线程并发
+
+![Java 7 ConcurrentHashMap 存储结构](picture/java基础/concurrentHashMap1.7.png)
 
 JDK1.8的底层是数组+散列表+红黑树，并发访问的时候只对单独的桶进行加锁，锁的粒度更细
 ![ConcurrentHashMap](https://s1.ax1x.com/2020/10/19/0z89wq.png)
@@ -2107,7 +2205,7 @@ JDK1.8的底层是数组+散列表+红黑树，并发访问的时候只对单独
 ![ConcurrentHashMap的put](https://s1.ax1x.com/2020/10/19/0z1V4U.png)
 
 - initTable() 初始化table表，保证只让一个线程对散列表进行初始化
-`sizeCtl`是一个用于同步多个线程的共享变量，如果它的当前值为负数，则说明table正在被某个线程初始化或者扩容(`-1代表正在初始化，-N代表正在扩容，正数代表要引发扩容的阈值`)，所以，如果某个线程想要`初始化table`或者`对table扩容`，需要去竞争`sizeCtl`这个共享变量，获得变量的线程才有许可去进行接下来的操作，没能获得的线程将会一直自旋来尝试获得这个共享变量，所以获得sizeCtl这个变量的线程在完成工作之后需要设置回来，使得其他的线程可以走出自旋进行接下来的操作
+`sizeCtl`是一个用于同步多个线程的共享变量，如果它的当前值为负数，则说明table正在被某个线程初始化或者扩容(`-1代表正在初始化，-N代表有N-1个线程正在进行扩容，正数代表要引发扩容的阈值`)，所以，如果某个线程想要`初始化table`或者`对table扩容`，需要去竞争`sizeCtl`这个共享变量，获得变量的线程才有许可去进行接下来的操作，没能获得的线程将会一直自旋来尝试获得这个共享变量，所以获得sizeCtl这个变量的线程在完成工作之后需要设置回来，使得其他的线程可以走出自旋进行接下来的操作
 - ConcurrentHashMap 延迟创建table到put第一个元素时
 
 ![initTable](https://s1.ax1x.com/2020/10/19/0zYLHs.png)
@@ -2439,7 +2537,7 @@ Java 反射机制是指在运行状态中，对于任意一个类都能够知道
 
 
 ## 2. Class类
-- Class 类没有 public 构造器   
+- **Class类没有公共的构造方法**，Class对象是在类加载的时候由Java虚拟机以及通过调用类加载器中的 defineClass 方法自动构造的，因此不能显式地声明一个Class对象
 ### 2.1 获取Class对象   
 1. 调用对象的 getClass()方法  
 ~~~java

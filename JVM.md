@@ -286,7 +286,7 @@ public class Singleton {
   - 方法返回地址（或方法正常退出或异常退出的定义）
   - 一些附加信息
 
-![栈帧](https://s1.ax1x.com/2020/10/27/Ble5Ax.png)
+<img src="https://s1.ax1x.com/2020/10/27/Ble5Ax.png" alt="栈帧" style="zoom:50%;" />
 
 ### 4.2.2 局部变量表
 - 也称为局部变量数组，或者本地变量表。定义为一个`数字数组`，存储`方法参数和方法体内的局部变量`，数据的类型是基本数据类型，对象的引用和 returnAddress类型。
