@@ -17,7 +17,7 @@
 %%          字面上的百分号标志（无操作数）
 ```
 
-
+![内存模型](picture/go语言要点/内存模型.png)
 
 
 
@@ -280,6 +280,8 @@ true和false
 
 ## 5. 字符串
 
+**字符串类型自身存储了长度，所以不需要\0作为结束标志**
+
 文本字符串通常被解释成UTF-8编码的Unicode码点（rune）序列
 
 字符串是**不可改变的字节序列**，len函数返回字符串的**字节数目**！所以第i个字节并不一定是字符串的第i个字符，因为对于非ASCII字符的UTF8编码会要两个或多个字节
@@ -438,9 +440,15 @@ y, err := strconv.ParseInt("123", 10, 64) // base 10, up to 64 bits
 
 ## 6.  常量
 
-const声明
+- 字面值常量
 
-iota常量生成器
+- const声明
+
+- iota常量生成器
+
+**常量赋值后不能进行修改**
+
+常量存储在数据区
 
 ## 无类型常量
 
@@ -507,6 +515,22 @@ func changeArr(arr [2]int) {
 
 
 
+### 数组指针
+
+```go
+var arr [5]int{1,2,3,4,5}
+var p *[5]int
+p = &arr
+fmt.Println((*p)[1])    //2
+fmt.Println(p[1])		//2
+fmt.Println((&arr)[1])	//2
+fmt.Println(&arr[0])	//0xc00001a0e0
+fmt.Println(&arr)		//&[1 2 3 4 5]
+fmt.Printf("%p\n", &arr)//0xc00001a0e0
+```
+
+访问成员的方法：`(*p)[index]`，也可以简写为`p[index]`
+
 ## 2. Slice
 
 Slice（切片）代表变长的序列，序列中每个元素都有相同的类型。一个slice类型一般写作[]T，其中T代表slice中元素的类型。Slice没有固定的长度
@@ -545,7 +569,11 @@ x = append(x, 4, 5, 6)
 x = append(x, x...) // append the slice x
 ```
 
+### 切片指针
 
+切片本身就是指针，所以切片的指针是指针的指针
+
+由于是两级指针，所以访问切片成员只能`(*p)[index]`不能简写
 
 ## 3. Map
 
@@ -761,7 +789,18 @@ fmt.Println(titles) // "[{Casablanca} {Cool Hand Luke} {Bullitt}]"
 
 
 
+## 7. 指针相关
 
+1.  指针只声明未初始化，则指向内存地址为0的位置。*0，0-255地址为系统占用，不允许用户进行读写操作
+
+   ```go
+   var p *int
+   *p = 123   //panic: runtime error: invalid memory address or nil pointer dereference
+   ```
+
+2. 野指针：指向未知的空间
+
+不允许访问空指针和野指针对应的内存空间。。。
 
 # 四、函数
 
@@ -951,9 +990,9 @@ vals被看作是[]int的切片，但是实际上并不是切片，和以切片�
 
 
 
-## 5. defer
+## 5. defer延迟调用机制
 
-对于函数或方法前加了difer关键字的，当执行到该条语句时，函数和参数表达式得到计算，但**直到包含该defer语句的函数执行完毕时，defer后的函数才会被执行**，不论包含defer语句的函数是通过return正常结束，还是由于panic导致的异常结束。你可以在一个函数中执行多条defer语句，它们的**执行顺序与声明顺序相反**。注意**在difer之后执行完毕**才会执行difer语句
+对于函数或方法前加了difer关键字的，当执行到该条语句时，**函数和参数表达式得到计算**，但**直到包含该defer语句的函数执行完毕时，defer后的函数才会被执行**，不论包含defer语句的函数是通过return正常结束，还是由于panic导致的异常结束。你可以在一个函数中执行多条defer语句，它们的**执行顺序与声明顺序相反**。注意**在defer之后执行完毕**才会执行difer语句
 
 ```go
 //处理文件读写
@@ -977,6 +1016,22 @@ func lookup(key string) int {
     return m[key]
 }
 ```
+
+```go
+//注意defer加载和传值的时间
+
+a:=10
+defer func(){fmt.Println(a)}()
+defer func(a int){fmt.Println(a)}(a)
+a = 100
+
+/*
+10
+100
+*/
+```
+
+
 
 **记录函数的执行时间：** bigSlowOperation被调时，**trace会返回一个匿名函数func()**，该**函数值会在bigSlowOperation退出时被调用**。通过这种方式， 我们可以只通过一条语句控制函数的入口和所有的出口，甚至可以记录函数的运行时间，如例子中的start。需要注意一点：**不要忘记defer语句后的圆括号**，否则本该在进入时执行的操作会在退出时执行，而本该在退出时执行的，永远不会被执行
 
@@ -1015,15 +1070,77 @@ func doFile(filename string) error {
 }
 ```
 
-## 6. Panic异常
 
-- Go的类型系统会在编译时捕获很多错误，但有些错误只能在运行时检查，如数组访问越界、空指针引用等。这些运行时错误会引起painc异常
+
+## 6. error 接口
+
+自定义错误，实现error接口
+
+```go
+err = errors.New("错误信息")
+```
+
+返回错误，调用者自行捕获错误信息
+
+
+
+**error返回的是一般性错误，可以进行处理，继续运行。。。panic一般是让程序不能继续运行的错误**
+
+## 7. Panic异常
+
+- Go的类型系统会在编译时捕获很多错误，但有些错误只能在运行时检查，如`数组访问越界、空指针引用`等。这些运行时错误会引起painc异常
 
 一般而言，当panic异常发生时，程序会**中断运行**，并立即执行在该goroutine中**被延迟的函数**（defer 机制）。随后，程序**崩溃并输出日志信息**。日志信息包括panic value和函数调用的堆栈跟踪信息
 
 - 直接调用内置的panic函数也会引发panic异常，某些不该发生的场景发生时，我们可以主动调用panic表示路径不可达
 
-## 7. recover捕获异常
+## 8. recover捕获异常
+
+panic异常一旦发生就会导致程序崩溃。。
+
+go语言为我们提供了专门拦截运行时panic的内建函数 `recover`，它可以使当前程序从运行时panic的状态中恢复，并重新获得流程控制权...
+
+**recover只有在defer调用的函数中有效**，defer直接调用recover不行，**必须包装在另一个函数中**
+
+**包含recover的defer必须在可能出现错误的语句之前声明**
+
+`func recover() interface{}`
+
+
+
+```go
+func errGenFunc(i int){
+    arr := [10]int{}
+    
+    defer func(){  //defer中通过匿名函数调用recover进行错误拦截
+        recover()  //可以从panic异常中重新获取控制权
+    }()
+    
+    fmt.Println(arr[i])
+}
+
+func post(){fmt.Println("post....")}
+
+func main(){
+    errGenFunc(100)
+    post()
+}
+
+/*
+post...    //从panic中恢复，正常执行后续程序
+*/
+```
+
+```go
+//更标准的处理方式应该是：
+defer func(){
+    if err := recover(); err!=nil{
+        fmt.Println(err)   //处理错误信息
+    }
+}()
+```
+
+
 
 
 
@@ -1061,7 +1178,7 @@ func (cp coleredPoint) show() {...}
 func (c color) distance(c2 color) float64 {...}
 
 func main(){
-  cp := coleredPoint{point{1, 1},"red"}
+  	cp := coleredPoint{point{1, 1},"red"}
 	cp2 := coleredPoint{point{2, 2}, "green"}
 
 	cpdistance := coleredPoint.distance
@@ -1076,6 +1193,12 @@ func main(){
 ```
 
 
+
+## 3. go语言可以方法重写，不能重载
+
+相互嵌套的结构体可以定义相同的方法名，根据自己的类型调用对应的方法
+
+但是同一个结构体不能定义同名的方法（go语言没有重载机制）
 
 
 
@@ -1111,4 +1234,8 @@ any = "hello"
 any = map[string]int{"one": 1}
 any = new(bytes.Buffer)
 ```
+
+
+
+
 
