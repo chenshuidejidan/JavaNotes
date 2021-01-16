@@ -1,8 +1,8 @@
 # 1. JVM简介
 ## 1.1 跨平台的语言和跨语言的平台
-![java从编码到执行](https://img-blog.csdnimg.cn/20200622135255828.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3NpbmF0XzQyNDgzMzQx,size_1,color_FFFFFF,t_70)
+![java从编码到执行](./picture/JVM/java从编码到执行.png)
 
-![JVM](https://img-blog.csdnimg.cn/20200622135505663.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3NpbmF0XzQyNDgzMzQx,size_1,color_FFFFFF,t_70)
+![JVM](picture/JVM/JVM.png)
 
 - **JVM与Java独立不相关，其他语言也可以通过特定的编译生成class字节码文件，在JVM上运行** 
 
@@ -15,7 +15,7 @@
 - JDK = JRE + development kit
 - JRE = JVM + core lib
 
-![wOvzYF.png](https://s1.ax1x.com/2020/09/22/wOvzYF.png)
+![jvm,jre,jdk](picture/JVM/jvm,jre,jdk.png)
 
 - `JRE`：JRE是指java运行环境。**光有JVM还不能运行class文件**，因为在解释class的时候JVM需要调用解释所需要的类库lib。在JDK的安装目录里你可以找到jre目录，里面有两个文件夹bin和lib,在这里可以认为bin里的就是jvm，lib中则是jvm工作所需要的类库，而jvm和 lib和起来就称为jre
 - `JDK`：JDK是java开发工具包。在目录下面有六个文件夹、一个src类库源码压缩包、和其他几个声明文件。其中，真正在运行java时起作用的是以下四个文件夹：`bin、include、lib、 jre`。现在我们可以看出这样一个关系，JDK包含JRE，而JRE包含JVM。
@@ -26,9 +26,9 @@
 
 ## 1.3 JVM整体结构
 - JVM整体结构：
-![JVM整体结构](https://s1.ax1x.com/2020/10/26/BK2hZj.png)
+![JVM整体结构](picture/JVM/JVM整体结构.png)
 - Java代码执行流程
-![Java代码执行流程](https://s1.ax1x.com/2020/10/26/BK24ds.png)
+![Java代码执行流程](picture/JVM/Java代码执行流程.png)
 JIT编译器可以对反复执行的热点代码直接编译为机器指令
 
 ## 1.4 基于栈的指令集架构
@@ -59,7 +59,7 @@ JIT编译器可以对反复执行的热点代码直接编译为机器指令
 # 3. 类的生命周期
 - **Class文件加载过程：** 硬盘上的class文件 -> loading -> linking （verfication -> preparation -> resolution） -> initializing -> gc
 
-![类的声明周期](https://s1.ax1x.com/2020/10/27/BQe6JS.png)
+![类的生命周期](picture/JVM/类的生命周期.png)
 
 ~~~java
 public class Test {
@@ -99,7 +99,7 @@ class T {
 - 加载的信息存放到`方法区`，除了类的信息外，方法区还有`运行时常量池`，`字符串字面量`和`数字常量`
 
 
-![类加载](https://s1.ax1x.com/2020/10/27/BQm9JO.jpg)
+![类加载](picture/JVM/类加载.jpg)
 - 一开始先判断类是否加载(未加载则ClassLoader加载)，然后开始链接，初始化
 
 ### 3.1.3 类加载器的种类
@@ -140,14 +140,14 @@ public class Test {
 
 ### 3.1.4 双亲委派机制
 
-![双亲委派模型](https://s1.ax1x.com/2020/11/06/BfV4RH.png)
+![双亲委派模型](picture/JVM/双亲委派模型.png)
 - JVM规范允许类加载器在预料`某个类将要被使用就预先加载`(并不是要等到首次使用才加载)，如果预加载出现错误，必须`在程序首次主动使用该类时才报告错误`(LinkageError)，如果该类一直未被程序主动使用，则类加载器不会报错
 - JVM采用按需加载，加载某个类时，JVM采用的是`双亲委派机制`，即**类加载器收到类加载请求时，不会自己去加载，而是把请求交给父类的加载器去处理，直到达到顶层的引导类加载器，如果无法加载，再往下委托**，是一种任务委派模式
 
 - 在JVM中判断两个class对象是否为同一个类的两个必要条件：**全限定类名相同，类的ClassLoader也相同**，也就是说两个类对象来源于同一个Class文件，只要不是被同一个ClassLoader加载，这两个对象就是不同的
 - **如果一个对象是被用户类加载器加载的，JVM会把这个类加载器的引用作为类信息的一部分保存到方法区中**，要保证类加载器不变
 
-![双亲委派机制](https://s1.ax1x.com/2020/11/06/BfSU9P.png)
+![双亲委派机制](picture/JVM/双亲委派机制.png)
 
 ~~~java
 package java.lang;
@@ -309,7 +309,7 @@ public class Singleton {
 - 对于`byte`范围内的数，直接按`bipush`单字节入栈，`short`类型就按`sipush`双字节入栈，但是存入局部变量表中都是int了
 - 由于**JVM操作码是一个字节的零地址指令**，这意味着指令集的操作码总数不可能超过256条,大部分指令都没有支持 byte、char 和 short 类型，甚至没有任何指令支持 boolean 类型。编译器会在编译器或运行期将 byte 和 short 类型带符号扩展为 int 类型， boolean 和 char 类型零位扩展为相应的 int 类型，
 **因此，大多数对于 boolean、byte、char 和 short 类型数据的操作，实际都是使用 int 类型作为运算类型**
-![操作数栈演示](https://s1.ax1x.com/2020/10/28/B1EUsA.png)
+![操作数栈演示](picture/JVM/操作数栈演示.png)
 
 ### 4.2.4 动态链接
 - 动态链接就是**指向运行时常量池的方法引用**
@@ -386,7 +386,7 @@ class myclass{
 - jdk1.7及之前，堆分为：`新生代(Eden:Survivor0:Survivor1=8:1:1)，老年代`，而`永久代`属于方法区
 - jdk1.8及之后，**堆分为：新生代，老年代**。`元空间`属于方法区
 
-![堆](https://s1.ax1x.com/2020/10/29/BJ1tIS.png)
+![jvm堆结构](picture/JVM/jvm堆结构.png)
 
 ### 4.4.1 设置堆的大小
 - 设置堆区起始内存大小：`-Xms`或者`-XX:InitialHeapSize`，默认大小是：电脑物理内存大小/64
@@ -401,14 +401,15 @@ class myclass{
 - `jstat -gc pid`：查看pid的内存信息
 - 或者直接添加运行参数`-XX:+PrintGCDetails`，在程序执行完显示
 
-![设置堆大小](https://s1.ax1x.com/2020/10/29/BG9Tw6.png)
-![查看堆大小2](https://s1.ax1x.com/2020/10/29/BGPJPS.png)
+![查看堆大小1](picture/JVM/查看堆大小1.png)
+
+![查看堆大小2](picture/JVM/查看堆大小2.png)
 
 ### 4.4.2 年轻代和老年代
 - JVM中的对象可分为两类：一类生命周期较短，创建消亡都很快。另一类生命周期很长。分别存放到年轻代和老年代区域
 - 默认`新生代：老年代=1：2`，新生代中`Eden：from：to=8：1：1`
 
-![堆](https://s1.ax1x.com/2020/10/29/BJ1tIS.png)
+![jvm堆结构](picture/JVM/jvm堆结构.png)
 
 - 调整新生代和老年代的占比(一般不去调)：`-XX:NewRatio=4`，表示新生代占1，老年代占4，新生代占整个堆的1/5
   - 查看当前进程新生代和老年代的占比：`jinfo -flag NewRatio pid`
@@ -456,7 +457,7 @@ class myclass{
 - 一旦对象在TLAB空间分配内存失败时，JVM就会尝试使用`加锁机制`确保数据操作的原子性，从而`直接在Eden空间中分配内存`
 - `-XX:UseTLAB`查看是否开启TLAB，默认是开启的
 
-![TLAB](https://s1.ax1x.com/2020/10/29/BJJQFf.png)
+![TLAB](picture/JVM/TLAB.png)
 
 
 ### 4.4.7 堆的参数设置总结
@@ -494,7 +495,7 @@ class myclass{
 ## 4.5 方法区
 
 ### 4.5.1 堆、栈、方法区的交互
-![堆栈方法区](https://s1.ax1x.com/2020/10/29/BJJKTP.png)
+![堆栈方法区](picture/JVM/堆栈方法区.png)
 
 ### 4.5.2 方法区的理解
 - 《Java虚拟机规范》中提到，方法区逻辑上是堆的一部分，但是具体的实现可能不会对方法区进行垃圾回收。对于HotSpot虚拟机而言，方法区还有一个别名叫`非堆(Non-Heap)`，目的就是要和堆分开
@@ -602,9 +603,9 @@ jvm规范并没有规定要堆方法区的垃圾进行回收，HotSpot对方法�
 
 
 
-![对象内存布局](https://s1.ax1x.com/2020/10/30/BYgh0x.png)
+![对象内存布局](picture/JVM/对象内存布局.png)
 
-![对象内存图](https://s1.ax1x.com/2020/10/30/BYhvY6.png)
+![对象内存图解](picture/JVM/对象内存图解.png)
 </center>
 
 - `Object o = new Object();`new的一个object对象在内存中占多少字节？
@@ -614,7 +615,7 @@ jvm规范并没有规定要堆方法区的垃圾进行回收，HotSpot对方法�
 # 5. Java多线程内存模型
 - **每个线程由自己独立的PC，栈，本地方法栈**
 - **线程间共享方法区，堆**
-![多线程内存模型](https://s1.ax1x.com/2020/10/16/0bj25t.png)
+![多线程内存模型](picture/JVM/多线程内存模型.png)
 
 - 每个Thread有一个属于自己的工作内存
 - 所有Thread共用一个主内存
@@ -627,14 +628,24 @@ b. 主内存将更新后的x的值更新到线程2的工作内存中x的副本
 
 **JMM数据原子操作：**
 1. read：从主内存读取数据
+
 2. load：将主内存读取的数据写入工作内存
+
 3. use：从工作内存读取数据来计算
+
 4. assign：将计算好的值重新赋值给工作内存
+
 5. store：将工作内存的数据写入主内存
+
 6. write：将store过去的变量赋值给主内存中的变量
+
 7. lock：将主内存变量加锁，标识为线程独占状态
+
 8. unlock：将主内存变量解锁，解锁后其他线程可以锁定该变量
-![JMM数据原子操作](https://s1.ax1x.com/2020/10/16/0bxOjU.png)
+
+  
+
+  ![JMM数据原子操作](picture/JVM/JMM数据原子操作.png)
 
 
 # 6. JVM执行引擎
@@ -658,8 +669,9 @@ JVM的主要任务就是`装载字节码`，由于字节码不能直接运行在
 `-Xcomp` 完全采用JIT模式执行程序
 `-Xmixed` 采用解释器+JIT混合模式执行程序
 
-![java代码执行模式](https://s1.ax1x.com/2020/11/03/B6nMzq.png)
-![java代码执行过程](https://s1.ax1x.com/2020/11/03/B6AUJ0.png)
+![执行模式](picture/JVM/执行模式.png)
+
+![java代码执行过程](picture/JVM/java代码执行过程.png)
 
 
 # 7.  GC
@@ -672,7 +684,7 @@ JVM的主要任务就是`装载字节码`，由于字节码不能直接运行在
     - 后面的3种不再区分新生代和老年代
     - Epsilon 用来调试jdk，生产环境一般不用
 
-![垃圾回收器](https://s1.ax1x.com/2020/09/21/wqMZlt.png)
+![垃圾收集器](picture/JVM/垃圾收集器.png)
 - G1的STW是可控的，使STW的时间最短
 ## 7.1 相关概念
 
@@ -763,7 +775,7 @@ JVM的主要任务就是`装载字节码`，由于字节码不能直接运行在
 - **jdk1.8 默认的垃圾回收器是：Parallel Scavenge + Parallel Old** 
 
 7种经典的垃圾收集器：
-![7种经典垃圾收集器](https://s1.ax1x.com/2020/11/05/B2fbYq.png)
+![垃圾收集器](picture/JVM/垃圾收集器.png)
 
 |垃圾收集器|分类|作用位置|使用算法|特点|适用场景|
 |---|---|---|---|---|---|
@@ -784,7 +796,7 @@ JVM的主要任务就是`装载字节码`，由于字节码不能直接运行在
 - 并发式：用户线程和垃圾收集线程并发执行(不一定是并行)，垃圾回收时不会停顿用户程序的运行，如CMS，G1
 - 独占式：一旦垃圾回收线程运行，就停止所有的用户线程，直到垃圾回收完成
 
-![三种gc](https://s1.ax1x.com/2020/11/05/B2WmvD.png)
+![三种gc比较](picture/JVM/三种gc比较.png)
 
 
 **性能指标：**
@@ -832,12 +844,12 @@ Serial Old 和 Parallel Old 的 FGC 可以长到几个小时....于是有了CMS�
 - 垃圾回收器和应用程序在不同的线程中同时运行。是HotSpot推出的第一款并发收集器。**低延迟优先的垃圾收集器**
 - **应用于老年代，并发的，垃圾回收和应用程序同时运行，降低STW的时间(200ms以内)**
 
-![CMS](https://s1.ax1x.com/2020/11/05/BRF0c6.png)
+![CMS](picture/JVM/CMS.png)
 **初始标记：** `STW`，**仅仅是标记出GC Roots能直接关联到的对象(存活对象)**，包含老年代中所有被GCRoots直接关联的对象（1），和被GCRoots关联的存活的新生代对象直接关联到的老年代对象（2，3），标记完后就恢复之前被暂停的所有用户线程，时间非常短暂
 
-![初始标记](https://s1.ax1x.com/2020/11/05/BRKGxH.png)
+![初始标记](picture/JVM/初始标记.png)
 **并发标记：** 从GC Roots的直接关联对象开始**遍历整个对象图，找到所有存活的对象**（4，5），`如果某个对象的引用发生了变化，标记为dirty`，需要后续`重新标记（3）`。并发标记耗时长，但是不需要STW
-![并发标记](https://s1.ax1x.com/2020/11/05/BRKtsA.png)
+![并发标记](picture/JVM/并发标记.png)
 **重新标记：** `STW`，**修正并发标记期间因用户程序运行而导致标记变动的那一部分对象的标记记录**，比初始标记阶段稍长
 **并发清理：** 清理标记阶段判断的已经死亡的对象，释放内存空间
 
@@ -861,7 +873,7 @@ G1的出现，是为了`在延迟可控的情况下获得尽可能高的吞吐�
 - 一个内存区域并不会是固定的 Eden 或者 Old，不再需要指定年轻代和老年代所占的比例，程序启动时默认新生代占比5%，如果new的很多很快会自动增长
 - G1跟踪各个Region里的垃圾堆积的价值大小(**回收可获得的空间大小以及回收所需时间**的经验值)，维护一个优先级列表，**每次根据允许的收集时间，优先回收价值最大的Region**，保证在有限的时间内获得尽可能高的收集效率
 
-![G1](https://s1.ax1x.com/2020/09/21/wqGjEV.png)
+![G1](picture/JVM/G1.png)
 
 - **特点：**
 **并行和并发：** 多个gc线程同时并行回收，有效利用了多核计算能力；G1和用户进程交替执行，部分工作和应用程序同时执行，垃圾收集和用户进程并发运行
@@ -877,7 +889,7 @@ G1的出现，是为了`在延迟可控的情况下获得尽可能高的吞吐�
 
 G1提供了两种GC模式：YoungGC 和 MixedGC，均会STW
 
-![三个垃圾回收环节](https://s1.ax1x.com/2020/11/05/BWSYI1.png)
+![三个垃圾回收环节](picture/JVM/三个垃圾回收环节.png)
 
 
 
