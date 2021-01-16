@@ -12,7 +12,9 @@
 %c          字符（rune） (Unicode码点)
 %s          字符串
 %q          带双引号的字符串"abc"或带单引号的字符'c'
-%v          变量的自然形式（natural format）
+%v          变量的自然形式（natural format），也就是go语言的形式输出
+%+v 				先输出字段类型，再输出该字段的值
+%#v 				先输出结构体名字值，再输出结构体（字段类型+字段的值）
 %T          变量的类型
 %%          字面上的百分号标志（无操作数）
 ```
@@ -38,6 +40,24 @@
 
 
 ## 3. 变量
+
+
+
+左值与右值
+
+等号左边的变量，代表变量所在的内存空间
+
+等号右边的变量，代表变量内存空间存储的数据(值)
+
+```go
+var a,b int
+a = 1   //a左值，代表的是a所在的内存空间
+b = a   //a右值，代表的是a所在内存空间所存储的数据：1
+```
+
+
+
+
 
 ### 3.1 变量声明
 
@@ -84,6 +104,23 @@ func f() *int {
 //每次调用f函数都将返回不同的结果：
 fmt.Println(f() == f()) // "false"
 ```
+
+
+
+
+
+1. 指针只声明未初始化，则指向内存地址为0的位置。*0，0-255地址为系统占用，不允许用户进行读写操作
+
+   ```go
+   var p *int
+   *p = 123   //panic: runtime error: invalid memory address or nil pointer dereference
+   ```
+
+2. 野指针：指向未知的空间
+
+不允许访问空指针和野指针对应的内存空间。。。
+
+
 
 ### 3.3 new函数
 
@@ -174,7 +211,7 @@ fmt.Println(c == Celsius(f)) // "true"!
 
 **Celsius(f)是类型转换操作，它并不会改变值**，仅仅是改变值的类型而已。测试为真的原因是因为c和g都是零值
 
-### 3.7 包和文件
+### 3.7 包、文件、init函数
 
 对于在包级别声明的变量，如果有初始化表达式则用表达式初始化，还有一些没有初始化表达式的，例如某些表格数据初始化并不是一个简单的赋值过程。在这种情况下，我们可以用一个特殊的init初始化函数来简化初始化工作。每个文件都可以包含多个init初始化函数
 
@@ -187,6 +224,31 @@ func init() { /* ... */ }
 
 
 初始化工作是自下而上进行的，main包最后被初始化。以这种方式，可以确保在main函数执行之前，所有依赖的包都已经完成初始化工作了。同时p包若导入了q包，p包初始化的时候就认为q包已经初始化完成了
+
+
+
+**main包：** 编译器发现**包名为main的包**，并且**包含main()函数**，才会**将该包编译为二进制可执行文件**。编译时会使用main包的代码所在目录的名字作为二进制可执行文件的文件名
+
+
+
+**编译器查找import的包：** 首先查找Go的安装目录，然后按顺序查找GOPATH变量里的目录，未找到则会在执行run或者build的时候报错
+
+
+
+**命名导入：**
+
+```go
+import(
+	"fmt"
+  myfmt "mylib/fmt"   //命名为新的名
+)
+```
+
+**空白标识符：** 给导入的包赋予一个空名字`_` ，可以避免不使用该包的报错，但是init函数依然会执行，例如数据库驱动包的init函数将自己注册到sql包
+
+
+
+**init函数：** 一个包可以包含多个init函数，编译器会保证所有的init函数都在main函数前执行
 
 ### 3.8 变量的作用域
 
@@ -381,12 +443,12 @@ func basename(s string) string {
 **strings提供的函数**如下：
 
 ```go
-func Contains(s, substr string) bool
-func Count(s, sep string) int
-func Fields(s string) []string
+func Contains(s, substr string) bool   //是否存在指定的子串
+func Count(s, sep string) int   //统计sep的数量
+func Fields(s string) []string  //去掉空格，并按原空格位置进行切割，切割成字符串数组
 func HasPrefix(s, prefix string) bool
-func Index(s, sep string) int
-func Join(a []string, sep string) string
+func Index(s, sep string) int   //返回指定子串的开始下标，找不到返回-1
+func Join(a []string, sep string) string  //将字符串切片使用sep拼接成string
 ```
 
 **bytes也对应六个函数**：它们之间唯一的区别是字符串类型参数被替换成了字节slice类型的参数。bytes包还提供了Buffer类型用于字节slice的缓存。一个Buffer开始是空的，但是随着string、byte或[]byte等类型数据的写入可以动态增长，一个bytes.Buffer变量并不需要初始化，因为零值也是有效的
@@ -450,7 +512,7 @@ y, err := strconv.ParseInt("123", 10, 64) // base 10, up to 64 bits
 
 常量存储在数据区
 
-## 无类型常量
+### 无类型常量
 
 许多常量并没有一个明确的基础类型。编译器为这些没有明确基础类型的数字常量提供比基础类型更高精度的算术运算；你可以认为至少有256bit的运算精度。这里有六种未明确类型的常量类型，分别是无类型的布尔型、无类型的整数、无类型的字符、无类型的浮点数、无类型的复数、无类型的字符串
 
@@ -515,6 +577,12 @@ func changeArr(arr [2]int) {
 
 
 
+### 指针数组
+
+指针数组赋值时浅拷贝，指针指向的是同一片内存
+
+
+
 ### 数组指针
 
 ```go
@@ -533,24 +601,18 @@ fmt.Printf("%p\n", &arr)//0xc00001a0e0
 
 ## 2. Slice
 
+**数组存在的问题：**
+
+	1. 数组容量固定，不能自动拓展，且类型是带着长度的
+	2. 数组是值传递，数组作为函数参数时会传递数组的拷贝
+
 Slice（切片）代表变长的序列，序列中每个元素都有相同的类型。一个slice类型一般写作[]T，其中T代表slice中元素的类型。Slice没有固定的长度
 
-一个slice由三个部分构成：指**针、长度和容量**。指针指向第一个slice元素对应的底层数组元素的地址，要注意的是slice的第一个元素并不一定就是数组的第一个元素。长度对应slice中元素的数目；长度不能超过容量，容量一般是从slice的开始位置到底层数据的结尾位置。内置的`len`和`cap`函数分别返回slice的长度和容量
+一个slice由三个部分构成：**指针、长度和容量**。指针指向第一个slice元素对应的底层数组元素的地址，要注意的是slice的第一个元素并不一定就是数组的第一个元素。长度对应slice中元素的数目；长度不能超过容量，容量一般是从slice的开始位置到底层数据的结尾位置。内置的`len`和`cap`函数分别返回slice的长度和容量
 
 如果切片操作超出cap(s)的上限将导致一个panic异常，但是超出len(s)则是意味着扩展了slice，因为新slice的长度会变大
 
 和数组不同的是，**slice之间不能比较**，因此我们不能使用==操作符来判断两个slice是否含有全部相等元素。不过标准库提供了高度优化的`bytes.Equal`函数来判断两个字节型slice是否相等（[]byte），但是对于其他类型的slice，我们必须自己展开每个元素进行比较
-
-- 为nil的Slice没有底层数组，len和cap都是0，可以进行比较。但是非nil的Slice也可以len和cap为0，与普通Slice一样
-
-```go
-var s []int    // len(s) == 0, s == nil
-s = nil        // len(s) == 0, s == nil
-s = []int(nil) // len(s) == 0, s == nil
-s = []int{}    // len(s) == 0, s != nil
-```
-
-除了和nil相等比较外，**一个nil值的slice的行为和其它任意0长度的slice一样**；例如reverse(nil)也是安全的。除了文档已经明确说明的地方，所有的Go语言函数应该以相同的方式对待nil值的slice和0长度的slice
 
 - **make函数**创建制定len和cap的Slice，省略cap时cap将和len相等...底层就是**创建了一个匿名的数组**，然后返回Slice
 
@@ -569,17 +631,283 @@ x = append(x, 4, 5, 6)
 x = append(x, x...) // append the slice x
 ```
 
+
+
+**cap并不是总容量，而是切片起点到数组右边界的容量**
+
+Slice[i:j] 长度：j-i.  容量：k-i
+
+```go
+	a := [5]int{0,1,2,3,4}
+	b := a[1:3]
+	c := a[2:3]
+	fmt.Println(len(b), cap(b))   //2 4
+	fmt.Println(len(c), cap(c))   //1 3
+```
+
+
+
+### 空slice和nil slice
+
+- 为nil的Slice没有底层数组（数组指针是nil），len和cap都是0，可以进行比较。但是非nil的Slice也可以len和cap为0，与普通Slice一样
+
+```go
+var s []int    // len(s) == 0, s == nil
+s = nil        // len(s) == 0, s == nil
+s = []int(nil) // len(s) == 0, s == nil
+s = []int{}    // len(s) == 0, s != nil
+s = make([]int, 0) // len(s) == 0, s != nil
+```
+
+除了和nil相等比较外，**一个nil值的slice的行为和其它任意0长度的slice一样**；例如reverse(nil)也是安全的。除了文档已经明确说明的地方，所有的Go语言函数应该以相同的方式对待nil值的slice和0长度的slice
+
+
+
 ### 切片指针
 
 切片本身就是指针，所以切片的指针是指针的指针
 
 由于是两级指针，所以访问切片成员只能`(*p)[index]`不能简写
 
+
+
+当 slice 作为函数参数时，就是一个普通的结构体。若直接传 slice，在调用者看来，实参 slice 并不会被函数中的操作改变；若传的是 slice 的指针，在调用者看来，是会被改变原 slice 的。
+
+值的注意的是，不管传的是 slice 还是 slice 指针，如果改变了 slice 底层数组的数据，会反应到实参 slice 的底层数据。底层数据在 slice 结构体里是一个指针，仅管 slice 结构体自身不会被改变，也就是说底层数据地址不会被改变。 但是通过指向底层数据的指针，可以改变切片的底层数据
+
+```go
+func main() {
+	s := []int{1, 1, 1}
+	f(s)
+	fmt.Println(s)
+}
+
+func f(s []int) {
+	// i只是一个副本，不能改变s中元素的值
+	/*for _, i := range s {
+		i++
+	}
+	*/
+
+	for i := range s {
+		s[i] += 1
+	}
+}
+```
+
+运行一下，程序输出：
+
+```go
+[2 2 2]
+```
+
+果真改变了原始 slice 的底层数据。这里传递的是一个 slice 的副本，在 `f` 函数中，`s` 只是 `main` 函数中 `s` 的一个拷贝。在`f` 函数内部，对 `s` 的作用并不会改变外层 `main` 函数的 `s`。
+
+要想真的改变外层 `slice`，只有将返回的新的 slice 赋值到原始 slice，或者向函数传递一个指向 slice 的指针：
+
+```go
+func myAppend(s []int) []int {
+	// 这里 s 虽然改变了，但并不会影响外层函数的 s
+	s = append(s, 100)
+	return s
+}
+
+func myAppendPtr(s *[]int) {
+	// 会改变外层 s 本身
+	*s = append(*s, 100)
+	return
+}
+
+func main() {
+	s := []int{1, 1, 1}
+	newS := myAppend(s)
+
+	fmt.Println(s)
+	fmt.Println(newS)
+
+	s = newS
+
+	myAppendPtr(&s)
+	fmt.Println(s)
+}
+
+//运行结果
+//[1 1 1]
+//[1 1 1 100]
+//[1 1 1 100 100]
+```
+
+
+
+### 切片扩容
+
+源代码位于 runtime/slice.go 中
+
+```go
+func growslice(et *_type, old slice, cap int) slice {  //cap是扩容后期望的最小容量，即oldCap+appendCap
+ ...
+ newcap := old.cap
+ doublecap := newcap + newcap
+ if cap > doublecap {
+  newcap = cap
+ } else {
+  if old.cap < 1024 {
+   newcap = doublecap
+  } else {
+   for 0 < newcap && newcap < cap {
+    newcap += newcap / 4
+   }
+   if newcap <= 0 {
+    newcap = cap
+   }
+  }
+ }
+ ...
+}
+```
+
+如果**期望容量大于当前容量的两倍**就会使用期望容量
+
+否则如果当前切片的长度小于 1024 就会将容量翻倍； 如果当前切片的长度大于 1024 就会每次增加 25% 的容量，直到新容量大于期望容量
+
+```go
+  // 例如
+	s := []string{"a", "b"}
+	s = append(s, "c", "d", "e")
+	fmt.Printf("%d %d", len(s), cap(s))  //cap=5 > doublecap=4, 所以计算得到 5，5
+
+	a := []int{1, 2}
+	a = append(a, 4, 5, 6)
+	fmt.Printf("%d %d", len(a), cap(a))  //运行结果：5,6 ???
+```
+
+
+
+上面只是确定切片的大致容量，接下来**还需要根据切片中元素的大小对它们进行内存对齐**，所以新Slice的容量会大于等于老Slice的两倍或者1.25倍的
+
+```go
+capmem := roundupsize(uintptr(newcap) * uintptr(et.size))
+newcap = int(capmem / ptrSize)
+```
+
+newcap就是前面计算出的newcap，et.size代表slice中一个元素的大小，**capmem计算出来的是此次扩容需要申请的内存大小**。**roundupsize函数是处理内存对齐的函数**
+
+上面的例子，roundupsize函数会传入 5*8 = 40
+
+```go
+func roundupsize(size uintptr) uintptr {
+	if size < _MaxSmallSize {
+		if size <= smallSizeMax-8 {
+			return uintptr(class_to_size[size_to_class8[(size+smallSizeDiv-1)/smallSizeDiv]])
+		} else {
+			//……
+		}
+	}
+    //……
+}
+
+const _MaxSmallSize = 32768
+const smallSizeMax = 1024
+const smallSizeDiv = 8
+```
+
+很明显，我们最终将返回这个式子的结果：
+
+```go
+class_to_size[size_to_class8[(size+smallSizeDiv-1)/smallSizeDiv]]
+```
+
+(size+smallSizeDiv-1)/smallSizeDiv，其实就是 size➗smallSizeDiv的结果向上取整
+
+这是 `Go` 源码中有关内存分配的两个 `slice`。`class_to_size`通过 `spanClass`获取 `span`划分的 `object`大小。而 `size_to_class8` 表示通过 `size` 获取它的 `spanClass`。
+
+```go
+var size_to_class8 = [smallSizeMax/smallSizeDiv + 1]uint8{0, 1, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 18, 18, 19, 19, 19, 19, 20, 20, 20, 20, 21, 21, 21, 21, 22, 22, 22, 22, 23, 23, 23, 23, 24, 24, 24, 24, 25, 25, 25, 25, 26, 26, 26, 26, 26, 26, 26, 26, 27, 27, 27, 27, 27, 27, 27, 27, 28, 28, 28, 28, 28, 28, 28, 28, 29, 29, 29, 29, 29, 29, 29, 29, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31}
+
+var class_to_size = [_NumSizeClasses]uint16{0, 8, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256, 288, 320, 352, 384, 416, 448, 480, 512, 576, 640, 704, 768, 896, 1024, 1152, 1280, 1408, 1536, 1792, 2048, 2304, 2688, 3072, 3200, 3456, 4096, 4864, 5376, 6144, 6528, 6784, 6912, 8192, 9472, 9728, 10240, 10880, 12288, 13568, 14336, 16384, 18432, 19072, 20480, 21760, 24576, 27264, 28672, 32768}
+```
+
+我们传进去的 `size` 等于 40。所以 `(size+smallSizeDiv-1)/smallSizeDiv = 5`；获取 `size_to_class8` 数组中索引为 `5` 的元素为 `4`；获取 `class_to_size` 中索引为 `4` 的元素为 `48`。
+
+最终，新的 slice 的容量为 `6`：
+
+```go
+newcap = int(capmem / ptrSize) // 6
+```
+
+
+
+### 合并两个切片
+
+```go
+	a := [5]int{0, 1, 2, 3, 4}
+	b := a[1:]
+	c := a[1:2]
+	c = append(c, b...)   //解构，将一个切片的所有元素追加到另一个切片里
+	fmt.Println(b)  //[1 2 3 4]
+	fmt.Println(c)  //[1 1 2 3 4]
+```
+
+
+
+### 使用第三个索引保护底层数组
+
+未使用第三个索引：
+
+```go
+	a := [5]int{0, 1, 2, 3, 4}
+	b := a[1:]
+	c := a[1:2]
+	c = append(c, 200)
+	fmt.Println(a)  //[0 1 200 3 4]
+	fmt.Println(b)  //[1 200 3 4]
+	fmt.Println(c)  //[1 200]
+```
+
+使用第三个索引，限制切片的容量，保护底层数组。如果限制新切片容量和长度一样，就可以在第一个append操作创建新的底层数组，与原有数组分离，安全的进行后续的修改
+
+指定切片 slice[i:j:k]，则**长度 j-i， 容量 k-i**
+
+```go
+	a := [5]int{0, 1, 2, 3, 4}
+	b := a[1:]
+	c := a[1:2:2]  //容量为1
+	c = append(c, 200)
+	fmt.Println(a)  //[0 1 2 3 4]
+	fmt.Println(b)  //[1 2 3 4]
+	fmt.Println(c)  //[1 200]
+```
+
+
+
+### range迭代slice的问题
+
+```go
+func main() {
+	slice := []int{1, 2, 3}
+	for i, v := range slice {
+		fmt.Printf("v:%d, v_addr:%p, elem_addr:%p\n", v, &v, &slice[i])
+	}
+}
+
+// v:1, v_addr:0xc000018080, elem_addr:0xc000014180
+// v:2, v_addr:0xc000018080, elem_addr:0xc000014188
+// v:3, v_addr:0xc000018080, elem_addr:0xc000014190
+```
+
+v每次都是slice**对应的值的一个拷贝**，对v修改是不会对原slice起作用的
+
+**v的地址没有变化**
+
+
+
 ## 3. Map
 
 map类型可以写为map[K]V，一个map中所有的key都是相同的类型，所有的value也都是相同的类型
 
-key对应的value必须支持==操作
+**key**可以是任何值，但**必须支持==操作**，**切片、函数以及包含切片的结构体**类型具有引用语义，不能作为map的key
+
+结构体支持==操作的前提是，结构体的每个成员都支持==操作
 
 创建map：
 
@@ -630,6 +958,89 @@ map之间不能进行比较，但可以进行nil的map的比较
 if age, ok := ages["bob"]; !ok { /* ... */ }
 ```
 
+
+
+### 空map和nil map
+
+```go
+	var ages map[string]int    // nil
+	ages1 := make(map[string]int, 0)  // !=nil
+	ages2 := map[string]int{}  // ！=nil
+	ages3 := map[string]int(nil)  // nil
+```
+
+向nil的map中添加元素会导致 `panic: runtime error: assignment to entry in nil map`
+
+
+
+### map的初始化
+
+**字面量：**
+
+当哈希表中的元素数量少于或者等于 25 个时，编译器会将字面量初始化的结构体转换成以下的代码，将所有的键值对一次加入到哈希表中：
+
+```go
+hash := make(map[string]int, 3)
+hash["1"] = 2
+hash["3"] = 4
+hash["5"] = 6
+```
+
+一旦哈希表中元素的数量超过了 25 个，编译器会创建两个数组分别存储键和值，这些键值对会通过如下所示的 for 循环加入哈希：
+
+```go
+hash := make(map[string]int, 26)
+vstatk := []string{"1", "2", "3", ... ， "26"}
+vstatv := []int{1, 2, 3, ... , 26}
+for i := 0; i < len(vstak); i++ {
+    hash[vstatk[i]] = vstatv[i]
+}
+```
+
+
+
+**运行时：**
+
+当创建的哈希被分配到栈上并且其容量小于 `BUCKETSIZE = 8` 时，Go 语言在编译阶段会使用如下方式快速初始化哈希，这也是编译器对小容量的哈希做的优化：
+
+```go
+var h *hmap
+var hv hmap
+var bv bmap
+h := &hv
+b := &bv
+h.buckets = b
+h.hash0 = fashtrand0()
+```
+
+除了上述特定的优化之外，无论 `make` 是从哪里来的，只要我们使用 `make` 创建哈希，Go 语言编译器都会在类型检查期间将它们转换成 `runtime.makemap`，使用字面量初始化哈希也只是语言提供的辅助工具，最后调用的都是 `runtime.makemap`
+
+
+
+
+
+### map的结构
+
+`runtime.hmap` 是最核心的结构体
+
+```go
+type hmap struct {
+	count     int      //哈希表中元素数量
+	flags     uint8
+	B         uint8    //buckets 数量，对数表示，buckets = 2^B，桶的数量都是2的幂
+	noverflow uint16
+	hash0     uint32   //哈希种子，引入随机性
+
+	buckets    unsafe.Pointer
+	oldbuckets unsafe.Pointer   //扩容时，保存之前的buckets
+	nevacuate  uintptr
+
+	extra *mapextra
+}
+```
+
+
+
 ## 4. 结构体
 
 ```go
@@ -642,10 +1053,13 @@ type Employee struct {
     ManagerID int
 }
 
-var dilbert Employee
+var dilbert Employee    // 创建一个结构体并初始化所有的成员为对应的零值！！！  结构体初始值并不是nil
 ```
 
+所以**不存在没有初始化的结构体变量**
+
 下面的EmployeeByID函数将根据给定的员工ID返回对应的员工信息结构体的指针。我们可以使用点操作符来访问它里面的成员：
+
 ```Go
 func EmployeeByID(id int) *Employee { /* ... */ }
 
@@ -735,6 +1149,48 @@ w = Wheel{
 
 匿名成员并不要求是结构体类型，命名类型也可以作为匿名成员。匿名类型的方法集。。.运算不仅可以获得匿名成员的嵌套成员，也可以获得它们的方法
 
+
+
+**当匿名嵌入是非公开的时，无法直接通过结构体字面量的方式初始化匿名的内部类型，不过由于类型提升，依然可以设置内部类型的公开成员的值（内部类型的标识符提升到了外部类型）**
+
+```go
+package important
+
+type a struct {
+	aa int
+	AA int
+}
+
+type B struct {
+	a
+	bb int
+	BB int
+}
+
+
+
+package main
+
+import (
+	"fmt"
+	"myLearnProject/important"
+)
+
+func main() {
+	b := important.B{
+		BB: 1,
+		//bb: 1,  //Unexported field 'bb' usage in struct literal
+		//AA: 1,  //Unknown field 'AA' in struct literal
+	}
+	b.AA = 2
+	fmt.Printf("%v", b) //{{0 2} 0 1}
+}
+```
+
+
+
+
+
 ## 5. JSON
 
 ```go
@@ -789,18 +1245,15 @@ fmt.Println(titles) // "[{Casablanca} {Cool Hand Luke} {Bullitt}]"
 
 
 
-## 7. 指针相关
+## 7. 基本类型和引用类型
 
-1.  指针只声明未初始化，则指向内存地址为0的位置。*0，0-255地址为系统占用，不允许用户进行读写操作
+基本类型(内置类型)：数值，字符串，布尔
 
-   ```go
-   var p *int
-   *p = 123   //panic: runtime error: invalid memory address or nil pointer dereference
-   ```
+引用类型：切片、map、channel、接口、函数
 
-2. 野指针：指向未知的空间
 
-不允许访问空指针和野指针对应的内存空间。。。
+
+
 
 # 四、函数
 
@@ -1074,11 +1527,39 @@ func doFile(filename string) error {
 
 ## 6. error 接口
 
-自定义错误，实现error接口
+```go
+type error interface {
+    Error() string
+}
+```
+
+创建error最简单的方法就是调用errors.New函数，返回一个新的error
 
 ```go
 err = errors.New("错误信息")
 ```
+
+**errors包：**
+
+```go
+package errors
+
+func New(text string) error { return &errorString{text} }  //返回error对象的地址，避免两个error相等
+type errorString struct { text string }		//errorString实现了error接口的全部方法
+func (e *errorString) Error() string { return e.text }  //*errorString实现了error接口的Error()方法
+```
+
+使用errors.New函数的情况还是比较少
+
+我们一般使用一个更方便的封装函数：**fmt.Errorf**，他还会处理字符串的格式化
+
+```go
+func Errorf(format string, args ...interface{}) error {
+  return errors.New(Sprintf(format, args...))   //Errorf函数实际上还是调用的errors.New()
+}
+```
+
+
 
 返回错误，调用者自行捕获错误信息
 
@@ -1116,7 +1597,7 @@ func errGenFunc(i int){
         recover()  //可以从panic异常中重新获取控制权
     }()
     
-    fmt.Println(arr[i])
+    fmt.Println(arr[i])  //可能越界，引发panic异常，使程序停止
 }
 
 func post(){fmt.Println("post....")}
@@ -1164,10 +1645,89 @@ func (p Point) Distance(q Point) float64 {
 }
 ```
 
-## 1. 基于指针的方法
+## 1. 方法的指针接收者和值接收者
 
-1. 不管你的method的receiver是指针类型还是非指针类型，都是可以通过指针/非指针类型进行调用的，编译器会帮你做类型转换。
-2. 在声明一个method的receiver该是指针还是非指针类型时，你需要考虑两方面的因素，第一方面是这个对象本身是不是特别大，如果声明为非指针变量时，调用会产生一次拷贝；第二方面是如果你用指针类型作为receiver，那么你一定要注意，这种指针类型指向的始终是一块内存地址，就算你对其进行了拷贝
+1. **不管是指针接收者还是值接收者实现了一个接口的方法，都可以通过该类型的值和指针调用接口的方法**，go语言会进行自动的类型转换
+2. **如果使用指针接收者来实现一个接口，那么只有该类型的指针才能实现对应接口（is interface a）。**
+3. **如果使用值接收者来实现一个接口，那么该类型的值和指针都实现了对应接口。**
+
+也就是说：值类型的方法集只包括使用值接收者实现的方法。而指针类型的方法集包含值和指针接收者实现的方法
+
+因为并不是总能获取一个值的地址
+
+| Values | Methods Receivers |
+| :----: | :---------------: |
+|   T    |       (t T)       |
+|   *T   | (t T) and (t *T)  |
+
+
+
+例如，使用值接收者实现接口：
+
+```go
+type buyer interface {
+	buy()
+}
+
+type student struct {
+	name string
+}
+
+func (s student) buy() {
+	fmt.Println(s.name, "买买买")
+}
+
+func showBuyer(b buyer) {
+	fmt.Println(b)
+}
+
+func main() {
+	s := student{"小明"}
+  
+  //使用值接收者实现接口，该类型的值和指针都可以调用接口方法
+	s.buy()       
+	(&s).buy()
+	
+  //使用值接收者实现接口，该类型的值和指针都实现了该接口
+	showBuyer(s)
+	showBuyer(&s)
+}
+```
+
+使用指针接收者实现接口：
+```go
+type buyer2 interface {
+	buy()
+}
+
+type student2 struct {
+	name string
+}
+
+func (s *student2) buy() {
+	fmt.Println(s.name, "买买买")
+}
+
+func showBuyer2(b buyer2) {
+	fmt.Println(b)
+}
+
+func main() {
+	s := student2{"小明"}
+  
+  //使用指针接收者实现接口，该类型的值和指针都可以调用接口方法
+	(&s).buy()
+	s.buy()
+	
+  //使用指针接口者实现接口，只有该类型的指针才实现了接口
+  //所以不能把该类型的值作为 buyer2 接口类型进行传递，它不是该接口类型
+	showBuyer2(s) //Cannot use 's' (type student2) as type buyer2Type does not implement 'buyer2' as 'buy' method has a pointer receiver
+	showBuyer2(&s)
+}
+
+```
+
+
 
 ## 2. 方法值和方法表达式
 
@@ -1202,7 +1762,38 @@ func main(){
 
 
 
+## 4. 方法操作的是副本
+
+其实就是方法的第一个参数是结构体的对象或者对象的指针
+
+所以就是值传递的
+
+**要修改对象的属性，方法的接收者应该是指针** （只需要接收者是指针即可，不需要调用者是指针，就算调用者是对象，也会进行隐式转换，转换为指针）
+
+```go
+func main() {
+	p := person{
+		name: "xiaoming",
+		age:  10,
+	}
+	p.addAge()
+	fmt.Printf("%v\n", p)   //{xiaoming 11}
+}
+
+func (p *person) addAge() {
+	p.age = p.age + 1
+}
+```
+
+
+
+
+
 # 六、接口
+
+
+
+## 1. 接口基本介绍
 
 Printf和Sprintf底层都是调用了Fprintf：
 
@@ -1224,7 +1815,7 @@ func Sprintf(format string, args ...interface{}) string {
 }
 ```
 
-interface{}类型，它没有任何方法，空接口类型对实现它的类型没有要求，所以我们可以将任意一个值赋给空接口类型
+**空接口**：interface{}类型，它没有任何方法，空接口类型对实现它的类型没有要求，所以我们可以将任意一个值赋给空接口类型
 
 ```go
 var any interface{}
@@ -1237,5 +1828,940 @@ any = new(bytes.Buffer)
 
 
 
+## 2. sort接口
 
+`sort.Interface` 接口定义了三个方法，自定义排序规则必须实现这三个接口
+
+```go
+package sort
+type Interface interface{
+  Len() int    //求排序序列的长度的方法
+  Less(i, j int) bool     //比较index i j的大小的方法
+  Swap(i, j int)  //交换方法
+}
+```
+
+对于 int 、 float64 和 string 数组或是分片的排序， go 分别提供了 sort.Ints() 、 sort.Float64s() 和 sort.Strings() 函数， 默认都是从小到大排
+go 的 sort 包可以使用 sort.Reverse() 来调换 slice.Interface.Less，交换后调用sort.Sort函数进行排序
+
+```go
+intList := [] int {2, 4, 3, 5, 7, 6, 9, 8, 1, 0}
+sort.Ints(intList)    //顺序排序
+sort.Sort(sort.Reverse(sort.IntSlice(a)))   //逆序排序
+```
+
+自定义排序，例如：
+
+```go
+type Person struct {
+    Name string
+    Age  int
+}
+
+// 按照 Person.Age 从大到小排序
+type PersonSlice [] Person
+
+// PersonSlice实现了sort接口的三个方法，所以可以当作sort.Interface来使用
+func (a PersonSlice) Len() int {return len(a)}
+func (a PersonSlice) Swap(i, j int){a[i], a[j] = a[j], a[i]}
+func (a PersonSlice) Less(i, j int) bool {return a[i].Age < a[j].Age}
+ 
+func main() {
+    people := [] Person{
+        {"zhang san", 12},
+        {"li si", 30},
+        {"wang wu", 52},
+        {"zhao liu", 26},
+    }
+ 
+  	//等价于：sort.Sort(sort.Interface(PersonSlice(people)))
+    sort.Sort(PersonSlice(people))    // 按照 Age 升序排序
+    fmt.Println(people)
+ 
+    sort.Sort(sort.Reverse(PersonSlice(people)))    // 按照 Age 降序排序
+    fmt.Println(people)
+ 
+}
+```
+
+
+
+## 3. http.Handler接口
+
+```go
+package http
+
+type Handler interface {
+    ServeHTTP(w ResponseWriter, r *Request)
+}
+
+func ListenAndServe(address string, h Handler) error
+```
+
+**ListenAndServe函数**需要一个例如“localhost:8000”的服务器地址，和一个所有请求都可以分派的Handler接口实例。它会一直运行，直到这个服务因为一个错误而失败（或者启动失败），它的返回值一定是一个非空的错误
+
+```go
+func main() {
+    db := database{"shoes": 50, "socks": 5}
+    log.Fatal(http.ListenAndServe("localhost:8000", db))
+}
+
+type dollars float32
+func (d dollars) String() string { return fmt.Sprintf("$%.2f", d) }
+
+type database map[string]dollars
+func (db database) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    for item, price := range db {
+        fmt.Fprintf(w, "%s: %s\n", item, price)
+    }
+}
+```
+
+**ServeMux多路请求器**，位于`net/http`包，可以简化URL和handlers的URL
+
+```go
+func main() {
+    db := database{"shoes": 50, "socks": 5}
+    mux := http.NewServeMux()
+    mux.Handle("/list", http.HandlerFunc(db.list))   //将database.list函数转化为http.HandlerFunc类型
+    mux.Handle("/price", http.HandlerFunc(db.price))
+    log.Fatal(http.ListenAndServe("localhost:8000", mux))
+}
+
+type database map[string]dollars
+
+func (db database) list(w http.ResponseWriter, req *http.Request) {
+    for item, price := range db {
+        fmt.Fprintf(w, "%s: %s\n", item, price)
+    }
+}
+
+func (db database) price(w http.ResponseWriter, req *http.Request) {
+    item := req.URL.Query().Get("item")
+    price, ok := db[item]
+    if !ok {
+        w.WriteHeader(http.StatusNotFound) // 404
+        fmt.Fprintf(w, "no such item: %q\n", item)
+        return
+    }
+    fmt.Fprintf(w, "%s\n", price)
+}
+```
+
+`http.HandlerFunc`接口定义了ServlHttp方法，所有func(w ResponseWriter, r *Request)都可以转化为HandlerFunc
+
+ServeHTTP方法的行为是**调用了它的函数本身**。因此HandlerFunc是一个**让函数值满足一个接口的适配器**，这里函数和这个接口仅有的方法有相同的函数签名。实际上，这个技巧让一个单一的类型例如database以多种方式满足http.Handler接口：一种通过它的list方法，一种通过它的price方法等等
+
+```go
+package http
+
+type HandlerFunc func(w ResponseWriter, r *Request)
+
+func (f HandlerFunc) ServeHTTP(w ResponseWriter, r *Request) {
+    f(w, r)
+}
+```
+
+为了方便，net/http包提供了一个**全局的ServeMux实例DefaultServerMux**和**包级别的http.Handle和http.HandleFunc函数**。现在，为了使用DefaultServeMux作为服务器的主handler，我们不需要将它传给ListenAndServe函数；nil值就可以工作。
+
+然后服务器的主函数可以简化成：
+
+```go
+func main() {
+    db := database{"shoes": 50, "socks": 5}
+    http.HandleFunc("/list", db.list)
+    http.HandleFunc("/price", db.price)
+    log.Fatal(http.ListenAndServe("localhost:8000", nil))
+}
+```
+
+
+
+## 4. 类型断言
+
+**x.(T)被称为断言类型**，这里x表示一个接口的类型和T表示一个类型。一个类型断言检查它操作对象的动态类型是否和断言的类型匹配
+
+1. **如果断言的T是一个具体类型，会检查x的动态类型是否和T相同，断言成功，返回x的动态值，断言失败则抛出panic异常**
+
+```go
+var w io.Writer
+w = os.Stdout
+f := w.(*os.File)      // success: f == os.Stdout
+c := w.(*bytes.Buffer) // panic: interface holds *os.File, not *bytes.Buffer
+```
+
+2. **如果断言的T是一个接口类型，会检查x的动态类型是否满足T接口，断言成功则会把x的类型转化为T，断言失败则会panic异常，如果T是nil接口值，那么不管x都什么类型都会失败**
+
+```go
+var w io.Writer
+w = os.Stdout
+rw := w.(io.ReadWriter) // success: *os.File has both Read and Write
+w = new(ByteCounter)
+rw = w.(io.ReadWriter) // panic: *ByteCounter has no Read method
+w = rw             // io.ReadWriter is assignable to io.Writer
+w = rw.(io.Writer) // fails only if rw == nil
+```
+
+
+
+对于接口值的动态类型经常是不确定的，我们会去检验它是否是一些特定的类型，这时如果使用两个参数去接受断言的结果，便会得到成功与否的标志
+
+```go
+var w io.Writer = os.Stdout
+if f, ok := w.(*os.File); ok {
+    // ...use f...
+}
+```
+
+
+
+## 5. -----基于类型断言区别错误类型
+
+os包中文件操作返回的错误集合：
+
+```go
+package os
+
+func IsExist(err error) bool      //创建文件，文件已存在
+func IsNotExist(err error) bool   //读取操作，文件不存在
+func IsPermission(err error) bool //权限拒绝
+```
+
+可以使用一个专门的类型来描述结构化的错误
+
+```go
+package os
+
+// PathError records an error and the operation and file path that caused it.
+type PathError struct {
+    Op   string
+    Path string
+    Err  error
+}
+
+func (e *PathError) Error() string {
+    return e.Op + " " + e.Path + ": " + e.Err.Error()
+}
+
+var ErrNotExist = errors.New("file does not exist")
+func IsNotExist(err error) bool {
+    if pe, ok := err.(*PathError); ok {
+        err = pe.Err
+    }
+    return err == syscall.ENOENT || err == ErrNotExist
+}
+```
+
+
+
+## 6. -----通过类型断言查询接口
+
+
+
+## 7. 内部类型和外部类型的接口问题
+
+由于**类型提升**，如果内部类型实现了某个接口，那么内部类型实现的接口会自动**提升到外部类型**，即**外部类型也同样实现了这个接口**
+
+如果内部类型是指针接收者实现的接口，那么对应外部类型的指针才能实现接口
+
+
+
+如果内部类型和外部类型实现了同一个接口，那么内部类型实现的接口不会被自动提升，通过外部类型访问外部类型实现的方法，内部类型访问内部类型实现的方法
+
+
+
+
+
+# 七、Goroutines和Channels
+
+Go语言中的并发程序可以用两种手段来实现：
+
+1. 本章的goroutine和channel，其支持“顺序通信进程”（communicating sequential processes）或被简称为CSP。CSP是一种现代的并发编程模型，在这种编程模型中值会在不同的运行实例（goroutine）中传递，尽管大多数情况下仍然是被限制在单一实例中。
+2. 覆盖更为传统的并发模型：多线程共享内存
+
+
+
+## 1. Goroutines-并发
+
+Go语言中，每一个并发的执行单元叫做一个goroutine
+
+当一个程序启动的时候，其主函数即在一个单独的goroutine中运行（main goroutine），使用go 语句创建一个新的goroutine.
+
+
+
+**修改逻辑处理器的数量**
+
+```go
+runtime.GOMAXPROCS(1)      //分配一个逻辑处理器给调度器使用
+```
+
+
+
+```go
+runtime.GOMAXPROCS(runtime.NumCPU())   //分配逻辑处理器的数量=cpu核心数，每个cpu核心都分配一个逻辑处理器
+```
+
+
+
+
+
+
+
+
+
+
+
+## 2. Channels-通信
+
+使用make语句创建无buffer的channel：`ch := make(chan int)`或者`ch := make(chan int, 0)`
+
+还可以指定buffer大小：`ch := make(chan int, 3)`，带buffer的channel
+
+channel对应一个make创建的底层数据结构的引用，所以复制或者函数参数传递的时候，拷贝了channel的引用，因此**调用者和被调用者引用了同一个channel对象**，如果两个channel引用的是同一个对象，那么他们==比较的结果为真
+
+
+
+**发送和接收：**
+
+```go
+ch <- x   //发送到channel，<-写在channel之后
+x = <- ch //从channel接收，<-写在channel之前
+```
+
+**关闭channel：** 使用`close(ch)`可以关闭channel，随后基于该channel的任何发送操作都会导致panic异常，**但是接收操作依然可以进行**
+
+
+
+### 无buffer的channel
+
+无buffer的channel的**发送操作**将会导致**发送者goroutine阻塞**，直到另一个goroutine在相同的channel上执行接收操作
+
+同理，接受操作先发生，也会阻塞，直到有另一个goroutine在相同的channel上执行发送操作
+
+所以无buffer的channel也叫做**同步channel**，发送和接收操作都会导致两个goroutine做一次同步操作
+
+
+
+- happens-before：并不是说x在时间上先于y时间发生，而是要保证在此之前的时间都已经完成了
+- 如果x既不是在y之前，也不是在y事件之后，我们就说x和y是**并发**的，也不一定同时发生，只是不能确定发生的先后顺序
+
+
+
+- **空结构体**`struct{}`类型的`channel`，它不能被写入任何数据，只有通过`close()`函数进行关闭操作，才能进行输出操作。`struct`{}类型的`channel`**不占用任何内存**，用来做同步用
+
+```go
+	ch := make(chan struct{})
+	times := make([]struct{}, 10)
+	for range times {
+		go func() {
+			handle()
+			ch <- struct{}{}
+		}()
+	}
+	// 如果注释掉这段，函数会立即返回，而这段会让函数等待所有的goroutine执行完成，进行一个同步，再ok 返回
+	// 而加上之后，主函数慢慢的排空channel，子goroutine慢慢的进行写入
+	//for range times {
+	//	<-ch
+	//}
+	fmt.Println("ok")
+```
+
+
+
+
+
+### 串联的channels(Pipeline)
+
+多个channel串联起来就形成了pipeline
+
+如果发送者知道没有更多的值需要发送到channel了，就可以让接收着也知道没有更多的值可以接收了，这样接收者可以停止不必要的接收等待，这可以通过内置的close函数来关闭channel以实现
+
+但是 **当一个被关闭的channle中已经发送的数据都被接收成功后**，后续的接收操作将不会再阻塞，它们**会立即返回0值**，会收到无休止的0序列，解决办法是接收者多接收一个ok参数，自己进行判断，例如：
+
+```go
+	for {
+		x, ok := <-squares
+		if !ok {
+			break
+		}
+		fmt.Println(x)
+	}
+```
+
+但是这种方法比较繁琐，更简洁的方法可以直接使用range循环在channel上迭代。**range循环在channel被关闭且没有值可接收时会自动跳出循环**
+
+```go
+func counter(out chan<- int) {
+    for x := 0; x < 100; x++ {
+        out <- x
+    }
+    close(out)
+}
+
+func squarer(out chan<- int, in <-chan int) {
+    for v := range in {
+        out <- v * v
+    }
+    close(out)
+}
+
+func printer(in <-chan int) {
+    for v := range in {
+        fmt.Println(v)
+    }
+}
+
+func main() {
+    naturals := make(chan int)
+    squares := make(chan int)
+    go counter(naturals)
+    go squarer(squares, naturals)
+    printer(squares)
+}
+```
+
+**将双向channel赋值给单向channel会进行隐式转换，但是反过来是不可以转换的**
+
+
+
+### 带buffer的channel
+
+带buffer的channel内部持有一个元素队列，队列的最大容量在make的时候进行指定
+
+`ch = make(chan string, 3)`
+
+当队列满了的时候，发送操作的goroutine才阻塞，当队列空了的时候，接收操作的goroutine才阻塞
+
+**使用len函数获取channel中有效元素个数，使用cap获得channel的缓存容量**
+
+**带buffer的channel还可以用来管理一组可复用的资源(实现一个pool)**
+
+
+
+### 无buffer的channel和buffer大小为1的channel
+
+无buffer的channel必须等待到接收方和发送方同时准备好时才能进行数据传递，否则会阻塞
+
+有buffer的channel当缓冲区满时，发送数据会阻塞，当缓冲区空时，接受数据会阻塞，不需要同时做好准备
+
+
+
+**无缓冲通道，如果接收方和发送方在一个程序中，会导致死锁：**容量大小为0，发送方将数据发送到channel后会阻塞自己，直到接收方进行读取为止，反之亦然，一般用于**goroutine同步**
+
+```go
+func main() {
+	c := make(chan int)
+  fmt.Println(len(c))   //0
+	c <- 1
+	fmt.Println(<-c)    //fatal error: all goroutines are asleep - deadlock!
+}
+```
+
+**修改为buffer大小为1的channel则不会有这个问题：**容量大小为1，发送方将数据发送到channel后不会阻塞自己(如果buffer容量足够)，一般用于**通信和资源共享**
+
+```go
+func main() {
+	c := make(chan int, 1)
+  fmt.Println(len(c))   //1
+	c <- 1
+	fmt.Println(<-c) //1
+}
+```
+
+再看两个例子：
+
+```go
+func main() {
+    var c = make(chan int) 
+    var a string
+
+    go func() {
+        a = "hello world" 
+        <-c 
+    }()
+
+    c <- 0  // 主线程走到这里会堵塞， 直到 c 中的 0 被取走， 所以协程里的 hello world 一定会被输出。
+    fmt.Println(a)
+}
+```
+
+```go
+func main() {
+    var c = make(chan int, 1) 
+    var a string
+
+    go func() {
+        a = "hello world" 
+        <-c 
+    }()
+
+    c <- 0  // 主线程走到这里不会堵塞，也就是 hello world 可能来不及输出，主线程就结束了。
+    fmt.Println(a)
+}
+```
+
+
+
+### 基于select的多路复用
+
+select的基本结构：**如果有default则不会阻塞，如过没有default则是阻塞调用，阻塞直到一个通道有事件为止**
+
+```go
+select {
+case <-ch1:
+    // ...
+case x := <-ch2:
+    // ...use x...
+case ch3 <- y:
+    // ...
+default:
+    // ...
+}
+```
+
+
+
+`time.Tick`函数返回一个channel，程序会周期性地像一个节拍器一样向这个channel发送事件。每一个事件的值是一个时间戳
+
+但是如果不是整个程序都需要这个channel，可以使用`time.NewTicker`，通过 `time.NewTicker.C`转化为channel，用完之后使用`ticker.Stop()`将ticker的goroutine结束掉
+
+```go
+func main() {
+	abort := make(chan struct{})
+	go func() {
+		os.Stdin.Read(make([]byte, 1)) // read a single byte
+		abort <- struct{}{}
+	}()
+
+	fmt.Println("Commencing countdown.  Press return to abort.")
+	ticker := time.NewTicker(1 * time.Second)
+	for countdown := 10; countdown > 0; countdown-- {
+		fmt.Println(countdown)
+		select {
+		case <-ticker.C:
+			fmt.Println(countdown)
+		case <-abort:
+			fmt.Println("Launch aborted!")
+			return
+		}
+	}
+	fmt.Println("launch....")
+}
+```
+
+
+
+**关于nil值的channel：** 向nil的channel读或者写都会被永远阻塞，所以select一个nil的channel会永远都select不到，所以可以用来**禁用或者激活case**
+
+
+
+
+
+### goroutine并发的退出
+
+go语言并没有提供在一个goroutine中终止另一个goroutine的方法，因为这样会导致goroutine之间的共享变量落在为定义的状态上
+
+
+
+
+
+# 八、 基于共享变量的并发
+
+一个提供对一个指定的变量通过channel来请求的goroutine叫做这个变量的monitor（监控）goroutine
+
+
+
+## 1. sync.Mutex互斥锁
+
+首先我们可以用缓存大小为1的 channel 来实现互斥锁：
+
+```go
+var (
+    sema    = make(chan struct{}, 1) // a binary semaphore guarding balance
+    balance int
+)
+
+func Deposit(amount int) {  //存款
+    sema <- struct{}{} // acquire token
+    balance = balance + amount
+    <-sema // release token
+}
+
+func Balance() int {  //查询
+    sema <- struct{}{} // acquire token
+    b := balance
+    <-sema // release token
+    return b
+}
+```
+
+
+
+**sync包中的Mutex类型直接支持这个操作：** 通过 `Mutex.Lock()` 和 `Mutex.Unlock()` 函数进行加锁和解锁，获取锁失败的goroutine会被阻塞，直到锁可用
+
+**go里没有重入锁**
+
+```go
+var (
+    mu      sync.Mutex // guards balance
+    balance int
+)
+
+func Deposit(amount int) {
+    mu.Lock()
+	  defer mu.Unlock()
+    balance = balance + amount
+}
+
+func Balance() int {
+    mu.Lock()
+ 		defer mu.Unlock()
+    b := balance
+    return b
+}
+```
+
+
+
+## 2. sync.RWMutex读写锁
+
+允许多个读操作并发执行，但是写操作完全互斥，`RLock()`, `RUnlock()`获取和释放共享锁，
+
+```go
+var mu sync.RWMutex
+var balance int
+func Balance() int {
+    mu.RLock() // readers lock
+    defer mu.RUnlock()
+    return balance
+}
+```
+
+
+
+## 3. sync.Once 惰性初始化
+
+```go
+var loadIconsOnce sync.Once
+var icons map[string]image.Image
+// Concurrency-safe.
+func Icon(name string) image.Image {
+    loadIconsOnce.Do(loadIcons)
+    return icons[name]
+}
+```
+
+保证只初始化一次
+
+
+
+## 4. atomic原子操作
+
+```go
+atomic.AddInt64(&counter, 1)   //原子地对counter加1
+```
+
+强制同一时刻只能有一个goroutine运行并完成这个加法操作
+
+
+
+`atomic.LoadInt64` 和 `atomic.StoreInt64` 两个函数提供了安全读写一个整型值的方式。这两者之间会互相同步，保证安全，不会进入竞争状态
+
+```go
+var (
+   // shutdown is a flag to alert running goroutines to shutdown.
+   shutdown int64
+
+   // wg is used to wait for the program to finish.
+   wg sync.WaitGroup
+)
+
+func main() {
+   wg.Add(2)
+
+   go doWork("A")
+   go doWork("B")
+
+   // Give the goroutines time to run.
+   time.Sleep(1 * time.Second)
+
+   // Safely flag it is time to shutdown.
+   fmt.Println("Shutdown Now")
+   atomic.StoreInt64(&shutdown, 1)
+
+   // Wait for the goroutines to finish.
+   wg.Wait()
+}
+
+// doWork simulates a goroutine performing work and
+// checking the Shutdown flag to terminate early.
+func doWork(name string) {
+   defer wg.Done()
+
+   for {
+      fmt.Printf("Doing %s Work\n", name)
+      time.Sleep(250 * time.Millisecond)
+
+      // Do we need to shutdown.
+      if atomic.LoadInt64(&shutdown) == 1 {
+         fmt.Printf("Shutting %s Down\n", name)
+         break
+      }
+   }
+}
+```
+
+
+
+## goroutines和线程
+
+每一个**OS线程**都有一个**固定大小的内存**块（一般会是2MB）来做栈，这个栈会用来存储当前正在被调用或挂起（指在调用其它函数时）的函数的内部变量。
+
+一个goroutine会以一个很小的栈开始其生命周期，**一般只需要2KB**。一个goroutine的栈，和操作系统线程一样，会保存其活跃或挂起的函数调用的**本地变量**，但是和OS线程不太一样的是，一个goroutine的**栈大小并不是固定的**；栈的大小会根据需要动态地伸缩。而**goroutine的栈的最大值有1GB**
+
+
+
+
+
+# 九、测试
+
+`go test`命令是一个按照一定的约定和组织来测试代码的程序。在包目录内，所有以`_test.go`为后缀名的源文件在执行go build时不会被构建成包的一部分，它们是go test测试的一部分
+
+`*_test.go`文件中，有三种类型的函数：
+
+- **测试函数**：以Test作为函数前缀名(之后必须紧跟大写字母)，go test会调用这些测试函数，并报告结果为PASS或FAIL
+- **基准测试（benchmark）函数**：以Benchmark为函数前缀名，用于衡量一些函数的性能。go test会多次运行基准测试函数，计算平均时间
+- **示例函数**
+
+go test命令会遍历所有的`*_test.go`文件中符合上述命名规则的函数，生成一个**临时的main包**用于调用相应的测试函数，接着构建并运行、报告测试结果，最后清理测试中生成的临时文件
+
+
+
+## 1. 测试函数
+
+参数`-v`可用于打印**每个测试函数的名字和运行时间**
+
+参数`-run`对应一个正则表达式，只有**测试函数名被它正确匹配的测试函数**才会被`go test`测试命令运行
+
+
+
+表格驱动的测试案例：
+
+```Go
+func TestIsPalindrome(t *testing.T) {
+    var tests = []struct {
+        input string
+        want  bool
+    }{
+        {"", true},
+        {"a", true},
+        {"A man, a plan, a canal: Panama", true},
+        {"Evil I did dwell; lewd did I live.", true},
+        {"Able was I ere I saw Elba", true},
+        {"été", true},
+        {"Et se resservir, ivresse reste.", true},
+    }
+    for _, test := range tests {
+        if got := IsPalindrome(test.input); got != test.want {
+            t.Errorf("IsPalindrome(%q) = %v", test.input, got)
+        }
+    }
+}
+```
+
+
+
+## ...
+
+
+
+# 十、反射
+
+
+
+## 1. reflect.Type 和 reflect.Value
+
+函数 reflect.TypeOf 接受任意的 interface{} 类型，并以 reflect.Type 形式返回其动态类型：
+
+```Go
+t := reflect.TypeOf(3)  // a reflect.Type
+fmt.Println(t.String()) // "int"
+fmt.Println(t)          // "int"
+```
+
+这里将3作为接口传递给TypeOf函数，即**将一个具体的值转为接口类型**，会有一个**隐式的接口转换**操作，它会创建一个包含两个信息的接口值：操作数的**动态类型**（这里是 int）和它的**动态的值**（这里是 3）
+
+- reflect.Type是一个**接口类型**
+
+```go
+type Type interface {
+        Align() int
+        FieldAlign() int
+        Method(int) Method
+        MethodByName(string) (Method, bool)   //获取指定名字的method的引用
+        NumMethod() int
+        ...
+        Implements(u Type) bool   //判断是否实现了某个接口
+        ...
+}
+```
+
+- reflect.Value是一个**结构体类型**，这个结构体没有对外暴露的字段，但是提供了获取或者写入数据的方法
+
+```go
+type Value struct {
+        // 包含过滤的或者未导出的字段
+}
+
+func (v Value) Addr() Value
+func (v Value) Bool() bool
+func (v Value) Bytes() []byte
+```
+
+
+
+因为 reflect.TypeOf 返回的是一个动态类型的接口值，它总是**返回具体的类型**。因此，下面的代码将打印 "*os.File" 而不是 "io.Writer"
+
+同样的reflect.Valueof也接收任意的interface{}类型，返回状态其动态值的reflect.Value，也是具体的类型
+
+reflect.Type 和 reflect.Value 都实现了 fmt.Stringer 接口，但是除非 Value 持有的是字符串，否则 String 方法只返回其类型。而使用 fmt 包的 %v 标志参数会对 reflect.Values 特殊处理
+
+```Go
+var w io.Writer = os.Stdout
+fmt.Println(reflect.TypeOf(w)) // "*os.File"
+
+v := reflect.ValueOf(3) // a reflect.Value
+x := v.Interface()      // an interface{}
+i := x.(int)            // an int  类型断言
+fmt.Printf("%d\n", i)   // "3"
+```
+
+ **fmt.Printf 提供的 %T 参数，内部就是使用 reflect.TypeOf 来输出**
+
+
+
+## 2. 三大法则
+
+ Go 语言反射的三大法则：
+
+1. 从 `interface{}` 变量可以反射出反射对象；
+2. 从反射对象可以获取 `interface{}` 变量；
+3. 要修改反射对象，其值必须是可设置的；
+
+
+
+详细介绍：
+
+1. reflect.TypeOf() 和 reflect.ValueOf() 可以**将go语言的 interface{} 对象转化为反射对象**，他们的参数类型都是 interface{}。。所以这可能会进行隐式的类型转换。 如果我们认为 **Go 语言的类型** 和 **反射类型**处于两个不同的世界，那么这两个函数就是连接这两个世界的桥梁
+
+![golang-interface-to-reflection](picture/go语言要点/golang-interface-to-reflection.png)
+
+```go
+func main() {
+	author := "draven"
+	fmt.Println("TypeOf author:", reflect.TypeOf(author))   //TypeOf author: string
+	fmt.Println("ValueOf author:", reflect.ValueOf(author)) //ValueOf author: draven
+}
+```
+
+有了变量的类型之后，我们可以通过 `Method` 方法获得类型实现的方法，通过 `Field` 获取类型包含的全部字段。对于不同的类型，我们也可以调用不同的方法获取相关信息：
+
+- 结构体：获取字段的数量并通过下标和字段名获取字段 `StructField`；
+- 哈希表：获取哈希表的 `Key` 类型；
+- 函数或方法：获取入参和返回值的类型；
+- …
+
+
+
+2. 反射的第二法则是我们可以从反射对象可以获取 `interface{}` 变量。既然能够将接口类型的变量转换成反射对象，那么一定需要其他方法将反射对象还原成接口类型的变量， `reflect.Value.Interface`就能完成这项工作：
+
+![golang-reflection-to-interface](picture/go语言要点/golang-reflection-to-interface.png)
+
+```go
+v := reflect.ValueOf(1)
+v.Interface().(int)   //通过类型断言，将 interface{} 类型转化为了 int 类型
+```
+
+
+
+**无论是接口值到反射对象还是反射对象到接口值，都是需要两次类型转换的**：
+
+![img](picture/go语言要点/golang-bidirectional-reflection.png)
+
+当然如果变量本身就是 `interface{}` 类型的，那么它不需要类型转换，因为类型转换这一过程一般都是隐式的，所以我不太需要关心它，只有在我们需要将反射对象转换回基本类型时才需要显式的转换操作
+
+
+
+3. 最后一条法则是与值是否可以被更改有关，如果我们想要更新一个 `reflect.Value`，那么它持有的值一定是可以被更新的
+
+```go
+func main() {
+	i := 1
+	v := reflect.ValueOf(i)
+	v.SetInt(10)     //panic: reflect: reflect.flag.mustBeAssignable using unaddressable value
+	fmt.Println(i)
+}
+```
+
+由于go语言的函数调用都是**值传递**，**我们得到的反射对象和最开始的变量没有任何关系**，所以直接修改反射对象无法改变原始变量，程序为了防止错误就会崩溃
+
+**要修改原变量只能使用如下的方法：**
+
+```go
+	i := 1
+	v := reflect.ValueOf(&i) //调用 reflect.ValueOf       获取变量指针的反射对象
+	elem := v.Elem()         //调用 reflect.Value.Elem    获取指针指向的变量
+	elem.SetInt(10)          //调用 reflect.Value.SetInt  修改变量的值   ok， i=10
+  elem.Set(reflect.ValueOf(20))    //ok, i = 20
+  elem.Set(reflect.ValueOf("abc"))   //panic: string is not assignable to int
+  
+  //或者通过指针修改
+	x := 2
+	d := reflect.ValueOf(&x).Elem()   // d refers to the variable x
+	px := d.Addr().Interface().(*int) // px := &x
+	*px = 3                           // x = 3
+```
+
+## 3. 类型和值
+
+Go 语言的 `interface{}` 类型在语言内部是通过 `reflect.emptyInterface` 结体表示的，其中的 `rtype` 字段用于表示变量的类型，另一个 `word` 字段指向内部封装的数据：
+
+```go
+type emptyInterface struct {
+	typ  *rtype
+	word unsafe.Pointer
+}
+```
+
+用于获取变量类型的 `reflect.TypeOf` 函数将传入的变量隐式转换成 `reflect.emptyInterface`类型并获取其中存储的类型信息 `reflect.rtype`：
+
+```go
+func TypeOf(i interface{}) Type {
+	eface := *(*emptyInterface)(unsafe.Pointer(&i))
+	return toType(eface.typ)
+}
+
+func toType(t *rtype) Type {
+	if t == nil {
+		return nil
+	}
+	return t
+}
+```
+
+
+
+
+
+# 十一、标准库
+
+
+
+## 1. log包
+
+log.Println()  打印到标准日志记录器
+
+log.Fatalln()  调用后会紧接着调用os.Exit(1)
+
+log.Panicln() 调用后会紧接着调用panic()
 
