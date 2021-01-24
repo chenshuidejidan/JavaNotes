@@ -2865,6 +2865,76 @@ log.Panicln() 调用后会紧接着调用panic()
 
 ## 2. json相关
 
+
+
+**两种编码和解码方式：**
+
+1. 编码
+   `json.NewEncoder(<Writer>).encode(v)`    
+   `json.Marshal(&v)`  返回字节切片 []byte ，为了让编码后的json更加易读，还可以使用 `MatshalIndent(&v, "", "\t")`   第一个字符串是指定前缀，后面一个字符串指定一个制表符
+2. 解码
+   `json.NewDecoder(<Reader>).decode(&v)`     
+   `json.Unmarshal([]byte, &v)`     需要传入字节切片
+
+
+
+
+
+
+
+```go
+type Person struct {
+    Name string `json:"name"`
+    Age int `json:"age"`
+}
+
+func main()  {
+    // 1. 使用 json.Marshal 编码
+    person1 := Person{"张三", 24}
+    bytes1, err := json.Marshal(&person1)
+    if err == nil {
+        // 返回的是字节切片 []byte
+        fmt.Println("json.Marshal 编码结果: ", string(bytes1))
+    }
+
+    // 2. 使用 json.Unmarshal 解码
+    str := `{"name":"李四","age":25}`
+    // json.Unmarshal 需要字节数组参数, 需要把字符串转为 []byte 类型
+    bytes2 := []byte(str) // 字符串转换为字节切片
+    var person2 Person    // 用来接收解码后的结果
+    if json.Unmarshal(bytes2, &person2) == nil {
+        fmt.Println("json.Unmarshal 解码结果: ", person2.Name, person2.Age)
+    }
+
+    // 3. 使用 json.NewEncoder 编码
+    person3 := Person{"王五", 30}
+    // 编码结果暂存到 buffer(为了变成 io.Writer)
+    bytes3 := new(bytes.Buffer)
+    err = json.NewEncoder(bytes3).Encode(person3)
+    if err == nil {
+        fmt.Print("json.NewEncoder 编码结果: ", string(bytes3.Bytes()))
+    }
+
+    // 4. 使用 json.NewDecoder 解码
+    str4 := `{"name":"赵六","age":28}`
+    var person4 Person
+    // 创建一个 string reader 作为参数
+    err = json.NewDecoder(strings.NewReader(str4)).Decode(&person4)
+    if err == nil {
+        fmt.Println("json.NewDecoder 解码结果: ", person4.Name, person4.Age)
+    }
+}
+
+//json.Marshal 编码结果:  {"name":"张三","age":24}
+//json.Unmarshal 解码结果:  李四 25
+//json.NewEncoder 编码结果: {"name":"王五","age":30}
+//json.NewDecoder 解码结果:  赵六 28
+```
+
+
+
+
+
 - 对于**json原生字符串**，**反序列化到对象**，需要使用 `json.Unmarshal()` 函数，同时，需要传入的是原生字符串的字节数组，需要进行转换
 
 ```go
