@@ -1443,6 +1443,12 @@ vals被看作是[]int的切片，但是实际上并不是切片，和以切片�
 
 
 
+如果切片作为参数传递的时候，需要**对切片进行结构**，即传入切片的...
+
+**可变参数必须是可变参数函数的最后一个参数**
+
+
+
 ## 5. defer延迟调用机制
 
 对于函数或方法前加了difer关键字的，当执行到该条语句时，**函数和参数表达式得到计算**，但**直到包含该defer语句的函数执行完毕时，defer后的函数才会被执行**，不论包含defer语句的函数是通过return正常结束，还是由于panic导致的异常结束。你可以在一个函数中执行多条defer语句，它们的**执行顺序与声明顺序相反**。注意**在defer之后执行完毕**才会执行difer语句
@@ -1835,9 +1841,9 @@ any = new(bytes.Buffer)
 ```go
 package sort
 type Interface interface{
-  Len() int    //求排序序列的长度的方法
-  Less(i, j int) bool     //比较index i j的大小的方法
-  Swap(i, j int)  //交换方法
+  Len() int    //求待排序元素个数的方法
+  Less(i, j int) bool     //比较 i j 位置元素大小的方法
+  Swap(i, j int)  //交换 i j 位置元素的方法
 }
 ```
 
@@ -1850,7 +1856,86 @@ sort.Ints(intList)    //顺序排序
 sort.Sort(sort.Reverse(sort.IntSlice(a)))   //逆序排序
 ```
 
-自定义排序，例如：
+
+
+### 便捷的排序结构
+
+`sort.StringSlice`结构类型可以便捷的对[]string进行排序，`sort.IntSlice`可以便捷的对[]int进行排序（实际上还是[]string和[]int，只是帮我们定义好了自定义排序的三个方法），**类型转换为sort.Interface了，所以支持逆序排序**
+
+也可以直接使用`sort.Strings(a []string)`和`sort.Ints(a []int)`来进行排序，但是类型没有变为sort.Interface，因此**不支持使用 sort.Reverse 进行逆序**
+
+```go
+	nums := []int{1, 8, 5, 5, 3, 8}
+	s := sort.IntSlice(nums)   //转换为 sort.IntSlice 类型进行排序
+	sort.Sort(sort.Reverse(s))
+	fmt.Println(s)   // [8 8 5 5 3 1]
+
+	strs := []string{"acd", "ab", "d", "b"}
+	sort.Strings(strs)  //使用sort.Strings()函数进行排序
+	fmt.Println(strs) // [ab acd b d]
+```
+
+
+
+### Slice的自定义排序
+
+ sort包提供了三个slice的排序函数 `Slice`, `SliceStable`, `SliceIsSorted`
+
+```go
+package sort
+
+func Slice(slice interface{}, less func(i, j int) bool) {
+	rv := reflectValueOf(slice)
+	swap := reflectSwapper(slice)
+	length := rv.Len()
+	quickSort_func(lessSwap{less, swap}, 0, length, maxDepth(length))
+}
+
+// 稳定排序
+func SliceStable(slice interface{}, less func(i, j int) bool) {
+	rv := reflectValueOf(slice)
+	swap := reflectSwapper(slice)
+	stable_func(lessSwap{less, swap}, rv.Len())
+}
+
+// 判断是否排序
+func SliceIsSorted(slice interface{}, less func(i, j int) bool) bool {
+	rv := reflectValueOf(slice)
+	n := rv.Len()
+	for i := n - 1; i > 0; i-- {
+		if less(i, i-1) {
+			return false
+		}
+	}
+	return true
+}
+```
+
+举例： leetcode179，求数组元素拼接组合后的最大数
+
+```go
+func largestNumber(nums []int) string {
+	strs := make([]string, len(nums))
+	for i:=0; i<len(nums); i++{
+		strs[i] = strconv.Itoa(nums[i])
+	}
+	sort.Slice(strs, func(i, j int) bool {
+		return strs[i]+strs[j] > strs[j]+strs[i]
+	})
+	if strs[0] == "0" {
+		return "0"
+	}
+	return strings.Join(strs, "")
+}
+```
+
+
+
+
+
+### 结构体自定义排序
+
+结构体切片只要实现了 sort.Interface接口（定义Len，Swap，Less方法），就可以按照自定义的规则进行排序
 
 ```go
 type Person struct {
@@ -1882,6 +1967,8 @@ func main() {
     fmt.Println(people)
  
 }
+
+// 还可以把 Less 函数和 PersonSlice 封装到 PersonWrapper，使得调用者可以自己传入排序的 Less 方法
 ```
 
 
@@ -2529,7 +2616,16 @@ func doWork(name string) {
 
 `*_test.go`文件中，有三种类型的函数：
 
-- **测试函数**：以Test作为函数前缀名(之后必须紧跟大写字母)，go test会调用这些测试函数，并报告结果为PASS或FAIL
+- **测试函数**：以`Test`作为函数前缀名(之后必须紧跟**大写字母**)，函数必须接收`*testing.T`，并且不能有返回值，go test会调用这些测试函数，并报告结果为PASS或FAIL
+
+```go
+func TestDownload(t *testing.T) {
+  ...
+}
+```
+
+
+
 - **基准测试（benchmark）函数**：以Benchmark为函数前缀名，用于衡量一些函数的性能。go test会多次运行基准测试函数，计算平均时间
 - **示例函数**
 
@@ -2764,4 +2860,164 @@ log.Println()  打印到标准日志记录器
 log.Fatalln()  调用后会紧接着调用os.Exit(1)
 
 log.Panicln() 调用后会紧接着调用panic()
+
+
+
+## 2. json相关
+
+- 对于**json原生字符串**，**反序列化到对象**，需要使用 `json.Unmarshal()` 函数，同时，需要传入的是原生字符串的字节数组，需要进行转换
+
+```go
+type Cat struct {
+	Color string `json:"color"`
+	Name  string `json:"name"`
+}
+
+type CatGroup struct {
+	Cats  []Cat  `json:"cats"`
+	Owner string `json:"owner"`
+}
+
+func main() {
+	catsOfXiaoming := `{
+		"cats" : [
+			{"color":"黄色","name":"小黄猫"},
+			{"color":"花色","name":"小花猫"}
+		],
+		"owner" : "小明"
+	}`
+	var cg CatGroup
+
+	err := json.Unmarshal([]byte(catsOfXiaoming), &cg)
+	if err != nil {
+		log.Fatal("解码失败")
+	}
+	fmt.Printf("%+v", cg)
+}
+```
+
+
+
+- 对于实现了 `io.Reader` 接口的对象，可以直接使用 `json.NewDecoder()` 进行反序列化
+
+```go
+	catsOfXiaoming := `{
+		"cats" : [
+			{"color":"黄色","name":"小黄猫"},
+			{"color":"花色","name":"小花猫"}
+		],
+		"owner" : "小明"
+	}`
+	var cg CatGroup
+	
+	json.NewDecoder(strings.NewReader(catsOfXiaoming)).Decode(&cg)
+	fmt.Printf("%+v", cg)
+```
+
+
+
+## 3. io.Reader和io.Writer接口
+
+```go
+type Writer interface {
+  Write(p []byte) (n int, err error)
+}
+```
+
+**Write方法**
+
+- 将字节切片p里的 **len(p) 字节**的数据写入到**底层数据流**
+- 方法返回从p里**成功写入到底层数据流的字节数n (0<=n<=len(p)) **和可能的错误error
+- **当n<len(p)时，必须返回一个非nil的error**
+
+- 不管什么情况都**不能修改byte切片里的数据**
+
+
+
+```go
+type Reader interface {
+  Read(p []byte) (n int, err error)
+}
+```
+
+**Read方法**
+
+- **最多读入len(p)字节的数据到切片p里**
+- 方法返回**成功读入的字节数n (0<=n<=len(p))** 和可能的错误error
+- 如果 n<len(p) ，Read会**立即返回可用的数据**，而不是等待更多的数据
+- n>0时，遇到错误，或者读取完毕的时候，Read方法均会返回成功读入的字节数，**读取完毕返回EOF错误**
+- 调用者在返回的n>0的时候，应该**先处理读入的数据，再处理err**，EOF也要这样处理
+- 不要返回n=0的时候返回nil的错误,也就是说，没有读到数据的时候应该返回一个错误
+
+
+
+**应用的案例**
+
+`bytes.Buffer` 和 `os.File` 都实现了 `Writer` 和 `Reader` 接口
+
+```go
+func main() {
+	// bytes.Buffer实现了io.Writer接口
+	var b bytes.Buffer
+	b.Write([]byte("Hello "))
+
+	// 使用Fprintf将一个字符串拼接到buffer里
+	fmt.Fprintf(&b, "World!")
+
+	// 将buffer输出到标准输出
+	b.WriteTo(os.Stdout)
+}
+```
+
+几个函数的说明
+
+```go
+func (b *Buffer) Write(p []byte) (n int, err error) {
+	b.lastRead = opInvalid
+	m, ok := b.tryGrowByReslice(len(p))
+	if !ok {
+		m = b.grow(len(p))     //缓冲区会自动增大
+	}
+	return copy(b.buf[m:], p), nil   //追加写
+}
+
+func Fprintf(w io.Writer, format string, a ...interface{}) (n int, err error) {...}
+
+func (b *Buffer) WriteTo(w io.Writer) (n int64, err error) {...}
+```
+
+关于 `os.Stdout`
+
+```go
+var (
+	Stdin  = NewFile(uintptr(syscall.Stdin), "/dev/stdin")
+	Stdout = NewFile(uintptr(syscall.Stdout), "/dev/stdout")   //就是一个文件
+	Stderr = NewFile(uintptr(syscall.Stderr), "/dev/stderr")
+)
+
+func NewFile(fd uintptr, name string) *File {...}
+
+func (f *File) Write(b []byte) (n int, err error) {  //File也实现了io.Writer接口
+	if err := f.checkValid("write"); err != nil {
+		return 0, err
+	}
+	n, e := f.write(b)
+	if n < 0 {
+		n = 0
+	}
+	if n != len(b) {
+		err = io.ErrShortWrite
+	}
+
+	epipecheck(f, e)
+
+	if e != nil {
+		err = f.wrapErr("write", e)
+	}
+
+	return n, err
+}
+```
+
+
 
