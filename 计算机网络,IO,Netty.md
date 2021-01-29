@@ -941,6 +941,7 @@ ssize_t read(int fd, void *buf, size_t count);
 ~~~
 ![BIO](https://s3.ax1x.com/2020/11/14/DCfZuj.png)
 ![BIO多线程模型](https://s3.ax1x.com/2020/11/23/DYc259.png)
+
 2. `非阻塞式 I/O`：NIO，应用进程执行系统调用后，内核返回一个错误码，**应用进程可以继续执行**，但是要**不断执行系统调用获知IO是否完成**，`轮询(polling)`。CPU处理了很多的系统调用，CPU利用率低。**缺点：每次都要轮询所有连接，而且都要通过系统调用来获知数据是否准备好，系统调用消耗了大量的资源**
 ~~~c
 //支持设置非阻塞
@@ -1024,7 +1025,7 @@ while(1)   {
             }                           
             if(FD_ISSET(connfd,&exceptionfds)){ //测试文件是否异常    
                 ret = recv(connfd,buff,sizeof(buff)-1,MSG_OOB);
-				if(ret <= 0)	break;   
+								if(ret <= 0)	break;   
             }
             buffer清空;      
 	}// end switch    

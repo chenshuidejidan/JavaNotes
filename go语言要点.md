@@ -907,7 +907,7 @@ map类型可以写为map[K]V，一个map中所有的key都是相同的类型，�
 
 **key**可以是任何值，但**必须支持==操作**，**切片、函数以及包含切片的结构体**类型具有引用语义，不能作为map的key
 
-结构体支持==操作的前提是，结构体的每个成员都支持==操作
+结构体支持`==`操作的前提是，结构体的每个成员都支持`==`操作
 
 创建map：
 
@@ -2174,6 +2174,12 @@ Go语言中，每一个并发的执行单元叫做一个goroutine
 
 当一个程序启动的时候，其主函数即在一个单独的goroutine中运行（main goroutine），使用go 语句创建一个新的goroutine.
 
+**goroutine并不是线程，而是对线程的多路复用**
+
+一个goroutine启动时的栈大小仅为2KB，而一个OS线程的栈大小一般是2MB
+
+当一个goroutine被阻塞时，它**也会阻塞所复用的OS线程**，runtime会把位于被阻塞线程上的**其他goroutine移动到其他未被阻塞的线程上**继续运行
+
 
 
 **修改逻辑处理器的数量**
@@ -2187,14 +2193,6 @@ runtime.GOMAXPROCS(1)      //分配一个逻辑处理器给调度器使用
 ```go
 runtime.GOMAXPROCS(runtime.NumCPU())   //分配逻辑处理器的数量=cpu核心数，每个cpu核心都分配一个逻辑处理器
 ```
-
-
-
-
-
-
-
-
 
 
 
@@ -2438,17 +2436,112 @@ func main() {
 
 
 
-**关于nil值的channel：** 向nil的channel读或者写都会被永远阻塞，所以select一个nil的channel会永远都select不到，所以可以用来**禁用或者激活case**
+**在for循环里，即使通道被关闭了，依然有机会被select**，通道读取的结果是通道的零值和false：
+
+```go
+const (
+	fmtTime = "2006-01-02 15:04:05"
+)
+
+func main() {
+	c1 := make(chan int, 2)
+	c2 := make(chan int, 3)
+	var wg sync.WaitGroup
+	wg.Add(2)
+  
+	go func() {
+		for i := 0; i < 2; i++ {
+			c1 <- i
+		}
+		close(c1)
+		wg.Done()
+	}()
+	go func() {
+		for i := 0; i < 3; i++ {
+			c2 <- i
+		}
+		close(c2)
+		wg.Done()
+	}()
+	wg.Wait()
+	
+  for i := 0; i < 10; i++ {
+		select {
+		case x, ok := <-c1:
+			fmt.Printf("%s : 从c1读取到 x=%v, ok=%v\n", time.Now().Format(fmtTime), x, ok)
+			time.Sleep(500 * time.Millisecond)
+		case x, ok := <-c2:
+			fmt.Printf("%s : 从c2读取到 x=%v, ok=%v\n", time.Now().Format(fmtTime), x, ok)
+			time.Sleep(500 * time.Millisecond)
+		default:
+			fmt.Printf("%s : 没有读取到信息。。。\n", time.Now().Format(fmtTime))
+		}
+	}
+}
+
+/*
+2021-01-25 15:46:46 : 从c2读取到 x=0, ok=true
+2021-01-25 15:46:46 : 从c2读取到 x=1, ok=true
+2021-01-25 15:46:47 : 从c2读取到 x=2, ok=true
+2021-01-25 15:46:47 : 从c1读取到 x=0, ok=true
+2021-01-25 15:46:48 : 从c2读取到 x=0, ok=false
+2021-01-25 15:46:48 : 从c1读取到 x=1, ok=true
+2021-01-25 15:46:49 : 从c2读取到 x=0, ok=false
+2021-01-25 15:46:49 : 从c1读取到 x=0, ok=false
+2021-01-25 15:46:50 : 从c1读取到 x=0, ok=false
+2021-01-25 15:46:50 : 从c1读取到 x=0, ok=false
+*/
+```
 
 
+
+**nil值的channel：** 向nil的channel读或者写都会被永远阻塞，所以select一个nil的channel会永远都select不到，所以可以用来**禁用或者激活case**，例如想要修改上面的for循环，让通道关闭后就不再读取：
+
+```go
+	for i := 0; i < 10; i++ {
+		select {
+		case x, ok := <-c1:
+			fmt.Printf("%s : 从c1读取到 x=%v, ok=%v\n", time.Now().Format(fmtTime), x, ok)
+			if !ok {
+				c1 = nil
+			}
+			time.Sleep(500 * time.Millisecond)
+		case x, ok := <-c2:
+			fmt.Printf("%s : 从c2读取到 x=%v, ok=%v\n", time.Now().Format(fmtTime), x, ok)
+			if !ok {
+				c2 = nil
+			}
+			time.Sleep(500 * time.Millisecond)
+		default:
+			fmt.Printf("%s : 没有读取到信息。。。\n", time.Now().Format(fmtTime))
+		}
+	}
+
+/*
+2021-01-25 15:52:06 : 从c2读取到 x=0, ok=true
+2021-01-25 15:52:07 : 从c1读取到 x=0, ok=true
+2021-01-25 15:52:07 : 从c2读取到 x=1, ok=true
+2021-01-25 15:52:08 : 从c2读取到 x=2, ok=true
+2021-01-25 15:52:08 : 从c2读取到 x=0, ok=false
+2021-01-25 15:52:09 : 从c1读取到 x=1, ok=true
+2021-01-25 15:52:09 : 从c1读取到 x=0, ok=false
+2021-01-25 15:52:10 : 没有读取到信息。。。
+2021-01-25 15:52:10 : 没有读取到信息。。。
+2021-01-25 15:52:10 : 没有读取到信息。。。
+*/
+
+//如果没有default，则会出现 fatal error: all goroutines are asleep - deadlock!
+```
+
+
+
+为了避免死锁，我们的for循环条件可以修改为：`for ok1 || ok2 {...}`
 
 
 
 ### goroutine并发的退出
 
 go语言并没有提供在一个goroutine中终止另一个goroutine的方法，因为这样会导致goroutine之间的共享变量落在为定义的状态上
-
-
 
 
 
@@ -2633,11 +2726,13 @@ go test命令会遍历所有的`*_test.go`文件中符合上述命名规则的�
 
 
 
-## 1. 测试函数
+## 1. 单元测试
 
 参数`-v`可用于打印**每个测试函数的名字和运行时间**
 
-参数`-run`对应一个正则表达式，只有**测试函数名被它正确匹配的测试函数**才会被`go test`测试命令运行
+参数`-run`对应一个正则表达式，只有**测试函数名被它正确匹配的单元测试函数**才会被`go test`测试命令运行
+
+参数`-cover` 展示测试用例对代码的覆盖率
 
 
 
@@ -2667,7 +2762,94 @@ func TestIsPalindrome(t *testing.T) {
 
 
 
-## ...
+`testing.T`结构拥有几个非常有用的函数：
+
+- `Log` 将给定文本记录到错误日志，与fmt.Println 类似
+- `Logf` 
+- `Fail` 将测试函数标记为“已失败”，但允许测试函数继续执行
+- `FailNow` 将测试函数标记为“已失败”，并且停止测试函数
+- `Error = Log + Fail`，标记失败，继续执行。。。。Errorf = Logf + Fail
+- `Fatal = Log + FailNow`，标记失败，立即结束。。。Fatalf = Logf + FailNow
+
+
+
+**跳过测试用例**
+
+`t.Skip()` 
+
+```go
+func TestEncode(t *testing.T) {
+	t.Skip("Skipping encoding for now")
+}
+```
+
+
+
+**并行方式运行测试**
+
+`t.Parallel()`，，同时运行时命令`go test -v -parallel 3` 表示并行方式运行，最多3个任务并行
+
+```go
+func TestParallel_1(t *testing.T) {
+  t.Parallel()    //三个测试任务并行
+  time.Sleep(1 * time.Second)   //模拟需要耗时1秒的任务
+}
+
+func TestParallel_2(t *testing.T) {
+  t.Parallel()
+  time.Sleep(2 * time.Second)   //模拟需要耗时2秒的任务
+}
+
+func TestParallel_3(t *testing.T) {
+  t.Parallel()
+  time.Sleep(3 * time.Second)   //模拟需要耗时3秒的任务
+}
+```
+
+
+
+## 2. 基准测试
+
+基准测试也定义在 xxx_test.go 形式的文件中，基准测试的函数名为`BenchmarkXxxx(b *testing.B)`
+
+测试程序要做的就是将被测试的代码执行 b.N 次，以便检测代码的响应时间，b.N的值是根据被执行代码而改变的，由Go自行决定
+
+运行时的命令`go test -v -bench .` 其中 -bench 传入一个正则表达式用于匹配基准测试函数
+
+```go
+func BenchmarkDecode(b *testing.B) {
+  for i := 0; i < b.N; i++ {
+    decode("post.json") 
+  }
+}
+
+func BenchmarkUnmarshal(b *testing.B) {
+  for i := 0; i < b.N; i++ {
+    unmarshal("post.json")
+  }
+}
+```
+
+
+
+同时该命令也会执行单元测试函数，如果想要忽略单元测试，只进行基准测试，可以指定 -run 的参数为一个不存在的正则模式，这样所有的功能测试函数都会被忽略
+
+```shell
+➜  unit_testing git:(master) ✗ go test -v -cover -run x -bench .     
+goos: darwin
+goarch: amd64
+pkg: github.com/sausheong/gwp/Chapter_8_Testing_Web_Applications/unit_testing
+BenchmarkDecode
+BenchmarkDecode-8          55884             21660 ns/op
+BenchmarkUnmarshal
+BenchmarkUnmarshal-8       49724             25388 ns/op
+PASS
+coverage: 42.4% of statements
+ok      github.com/sausheong/gwp/Chapter_8_Testing_Web_Applications/unit_testing        4.143s
+
+```
+
+
 
 
 
@@ -2871,14 +3053,10 @@ log.Panicln() 调用后会紧接着调用panic()
 
 1. 编码
    `json.NewEncoder(<Writer>).encode(v)`    
-   `json.Marshal(&v)`  返回字节切片 []byte ，为了让编码后的json更加易读，还可以使用 `MatshalIndent(&v, "", "\t")`   第一个字符串是指定前缀，后面一个字符串指定一个制表符
+   `json.Marshal(&v)`  返回字节切片 []byte ，为了让编码后的json更加易读，还可以使用 `MatshalIndent(&v, "", "\t")`   以更易读的方式解码，第一个字符串是指定前缀，后面一个字符串指定缩进符
 2. 解码
    `json.NewDecoder(<Reader>).decode(&v)`     
    `json.Unmarshal([]byte, &v)`     需要传入字节切片
-
-
-
-
 
 
 
