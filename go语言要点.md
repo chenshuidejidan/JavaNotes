@@ -11,6 +11,7 @@
 %t          布尔：true或false
 %c          字符（rune） (Unicode码点)
 %s          字符串
+%p					打印地址
 %q          带双引号的字符串"abc"或带单引号的字符'c'
 %v          变量的自然形式（natural format），也就是go语言的形式输出
 %+v 				先输出字段类型，再输出该字段的值
@@ -304,6 +305,8 @@ fmt.Printf("%d %[1]c %[1]q\n", ascii)   // "97 a 'a'"
 
 go语言提供了两种精度的浮点数：float32和float64
 
+### NaN
+
 - 正无穷大和负无穷大，分别用于表示太大溢出的数字和除零的结果；还有NaN非数，一般用于表示无效的除法操作结果0/0或Sqrt(-1)
 
 ```go
@@ -344,14 +347,32 @@ true和false
 
 **字符串类型自身存储了长度，所以不需要\0作为结束标志**
 
-文本字符串通常被解释成UTF-8编码的Unicode码点（rune）序列
+字符串底层结构在`reflect.StringHeader`中定义
+
+```go
+type StringHeader struct {
+	Data uintptr
+	Len  int
+}
+```
+
+可以通过反射获取长度：
+
+```go
+s := "hello, world"
+fmt.Println((*reflect.StringHeader)(unsafe.Pointer(&s)).Len)
+```
+
+
+
+字符串是utf8编码的，字符串通常被解释成UTF-8编码的Unicode码点（rune）序列(使用for range循环即可)
 
 字符串是**不可改变的字节序列**，len函数返回字符串的**字节数目**！所以第i个字节并不一定是字符串的第i个字符，因为对于非ASCII字符的UTF8编码会要两个或多个字节
 
 ```go
 	s := "left foot"
 	t := s
-	s += "left foot, right foot"[9:]     //切片操作
+	s += "left foot, right foot"[9:]     //支持 切片操作
 	fmt.Println(s)  //left foot, right foot
 	fmt.Println(t)  //left foot    不改变原来的字符串（因为字符串是不可变的）
 ```
@@ -377,11 +398,21 @@ Utf-8编码：
 
 Utf-8编码是前缀编码，没有任何字符的编码是其它字符编码的子串，或是其它编码序列的字串，因此搜索一个字符时只要搜索它的字节编码序列即可，不用担心前后的上下文会对搜索结果产生干扰
 
+**目前rune(unicode码点)只使用了21位**
+
 **utf8解码器**可以帮助我们解码原生的utf8编码的字符串，另外range循环处理字符串的时候会隐式的解码utf8
+
+`for range`不支持非utf8编码的字符串的遍历，非utf8编码的字符串可以看做是**只读的二进制数组**
+
+字符串中实际存储的是utf8编码，使用for range可以获得rune码点
+
+
+
+**如果不想解码utf8字符串**，想直接遍历原始字节码，可以将字符串强转为`[]byte`字节数组，或者直接按照下标顺序访问
 
 ```go
 	s := "a中国"
-	for i := 0; i < len(s); {
+	for i := 0; i < len(s); {   //for range 底层其实就是这种方法
 		r, size := utf8.DecodeRuneInString(s[i:])
 		fmt.Printf("%d\t%c\n", i, r)
 		i += size
@@ -399,20 +430,49 @@ Utf-8编码是前缀编码，没有任何字符的编码是其它字符编码的
 1       中
 4       国
 */
+
+	str := "世"
+	for _, c := range []byte(str) {   //转换为字节数组，，一般没有运行时开销
+		fmt.Printf("%x ", c)
+	}
+	fmt.Println()
+	for i := 0; i < len(str); i++ {  //逐字节访问
+		fmt.Printf("%x ", str[i])
+	}
+	fmt.Println()
+	for _, c := range str {  				//按rune访问
+		fmt.Printf("%x  ", c)
+	}
+/*
+e4 b8 96    // 11100100  10111000 10010110
+4e16        //     0100    1110  0001 0110
+*/
+
 ```
 
 **utf8编码的字符串转换为[]rune的unicode码点序列([]int32)**：程序内部使用rune序列更方便，rune大小一致，支持数组索引和方便切割。
 
 - 直接进行[]rune类型和string类型的转换即可
-- []rune实际上就是[]int32类型
+- **[]rune实际上就是[]int32类型**，只是个别名，不是重新定义的类型
 
 ```go
+	//[]rune 和 string 的互相转换
+
 	s = "a中🐶"
 	fmt.Printf("% x\n", s) // "61 e4 b8 ad f0 9f 90 b6"
 	r := []rune(s)
 	fmt.Printf("%x\n", r) // "[61 4e2d 1f436]"
 	fmt.Println(string(r)) // "a中🐶"
+
+	fmt.Printf("%#v\n", []rune("世界"))    //[]int32{19990, 30028}
+	fmt.Printf("%#v\n", string([]rune{'世', '界'}))   //"世界"
 ```
+
+
+
+**Java中char是2字节，所以只能编码到unicode码点的FFFF，即三个字节utf-8编码，四个字节的utf-8编码一个char是装不下的，需要两个char**
+
+
 
 **字符串和byte切片：bytes、strings、strconv、unicode包**
 
@@ -512,6 +572,61 @@ y, err := strconv.ParseInt("123", 10, 64) // base 10, up to 64 bits
 
 常量存储在数据区
 
+### 命名常量和字面值常量
+
+命名常量既可以申明为`无类型`的，也可以申明为`有类型`的，声明一个字面量的时候，其实是声明了一个`匿名的无类型常量`
+
+```go
+const untypedInteger       = 12345
+const untypedFloatingPoint = 3.141592
+
+const typedInteger int           = 12345
+const typedFloatingPoint float64 = 3.141592
+```
+
+
+
+**常量是完全精确的**，不管是多大的整数或者是浮点数，都是精确的，这点跟变量不一样
+
+声明一个有类型常量时，右边常量的形式必须要与左边常量的类型兼容
+
+```go
+// 远远大于 int64 的整数
+const myConst = 9223372036854775808543522345    //可以编译通过
+const myConst int64 = 9223372036854775808543522345  // overflows int64 不会编译通过
+```
+
+
+
+**变量之间是不会进行隐式类型转换的，而常量与变量会经常发生隐式类型转换**
+
+```go
+var myInt int = 123.0     // 浮点数常量隐式转换为整型变量
+var myInt2 = 123   //省略变量类型进行常量-变量转换，，，，默认使用 int
+```
+
+
+
+**常量的种类提升：** 除了移位运算，如果二元运算的操作数是不同种类的无类型常量，运算结果使用以下种类中最靠后的一个：整数、Unicode 字符、浮点数、复数
+
+```go
+var answer = 3 * 0.333     // answer会是浮点数类型 float64
+```
+
+
+
+**关于数字常量的比较：**
+
+```go
+	a := int64(1)
+	b := 1
+	fmt.Println(a == 1)     // true , 进行隐式类型转换比较
+	fmt.Println(b == 1)     // true , 同上
+	//fmt.Println(a == b)   // mismatched types int64 and int
+```
+
+
+
 ### 无类型常量
 
 许多常量并没有一个明确的基础类型。编译器为这些没有明确基础类型的数字常量提供比基础类型更高精度的算术运算；你可以认为至少有256bit的运算精度。这里有六种未明确类型的常量类型，分别是无类型的布尔型、无类型的整数、无类型的字符、无类型的浮点数、无类型的复数、无类型的字符串
@@ -542,6 +657,10 @@ f = 2                  // untyped integer -> float64 相当于  f = float64(2)
 
 长度固定，所以一般很少用，一般用Slice，可以动态收缩和扩容
 
+**go语言中数组是值语义，一个数组变量就表示整个数组，而不是隐式指向第一个元素的指针(C语言)**
+
+数组变量被赋值或者传递的时候，会**复制整个数组**，为了减少开销，可以传递数组的指针，但是数组指针并不是数组
+
 ```go
 const (
 	apple int = iota
@@ -554,14 +673,14 @@ func main() {
 	fmt.Println(arr)   //[3 2 1 0 0 0 0 0 0 0 10]
   
   a := [2]int{1, 2}
-	b := [...]int{1, 2}
+  b := [...]int{1:2, 0:1}
   c := [3]int{1,2}
   fmt.Println(a == b)   //true
   fmt.Println(a == c)   //Invalid operation: a == c (mismatched types [2]int and [3]int)
 }
 ```
 
-数组传的也是值，传递引用要传递&
+数组传的是值
 
 ```go
 	a := [2]int{1, 2}	
@@ -575,7 +694,13 @@ func changeArr(arr [2]int) {
 
 数组类型非常僵化，因为**数组的类型中封装了数组的长度**，只有相同长度相同类型的数组才可以进行函数的参数传递，所以很少使用，除非是对特定长度的数组进行操作。。一般使用Slice来代替数组
 
+对数组来说，`Len()`和`Cap()`的值是永远相等的
 
+还可以定义结构体数组，函数数组，接口数组，通道数组等
+
+
+
+**长度为0的数组不占用内存空间，和无类型的空struct一样可以用来控制channel**
 
 ### 指针数组
 
@@ -660,6 +785,24 @@ s = make([]int, 0) // len(s) == 0, s != nil
 ```
 
 除了和nil相等比较外，**一个nil值的slice的行为和其它任意0长度的slice一样**；例如reverse(nil)也是安全的。除了文档已经明确说明的地方，所有的Go语言函数应该以相同的方式对待nil值的slice和0长度的slice
+
+
+
+**空slice用于实现filter**
+
+```go
+func Filter(s []byte, f func(x byte) bool) []byte {
+  b := s[:0]
+  for _,x := range s {
+    if !f(x) {
+      b = append(b, x)
+    }
+  }
+  return b
+}
+```
+
+
 
 
 
@@ -837,7 +980,7 @@ newcap = int(capmem / ptrSize) // 6
 
 
 
-### 合并两个切片
+### 合并切片与删除元素
 
 ```go
 	a := [5]int{0, 1, 2, 3, 4}
@@ -846,6 +989,45 @@ newcap = int(capmem / ptrSize) // 6
 	c = append(c, b...)   //解构，将一个切片的所有元素追加到另一个切片里
 	fmt.Println(b)  //[1 2 3 4]
 	fmt.Println(c)  //[1 1 2 3 4]
+```
+
+由于append返回了切片，所以还可以将多个append操作组合起来，实现在切片中间插入元素
+
+```go
+var a []int
+a = append( a[:i], append([]int{1,2,3}, a[i:]...)... )   //在第i个位置插入切片
+```
+
+为了避免append创建中间的临时切片，可以使用`copy()和append()`组合：
+
+```go
+a = append(a, x...)   //保证切片 a 扩展到足够的空间,没有可以直接扩展切片的方法
+copy(a[i+len(x):], a[i:])
+copy(a[i:], x)
+```
+
+
+
+利用copy()函数实现删除开头元素
+
+```go
+a = a[ : copy(a, a[N:] )]   //删除a的前N个元素
+```
+
+
+
+利用append()删除中间元素
+
+```go
+a = append( a[:i], a[i+N:] )   //删除从i开始的N个元素
+```
+
+
+
+利用copy()删除中间元素
+
+```go
+a = a[ : i + copy(a[i:], a[i+N:])]    //删除从i开始的N个元素
 ```
 
 
@@ -900,6 +1082,58 @@ v每次都是slice**对应的值的一个拷贝**，对v修改是不会对原sli
 **v的地址没有变化**
 
 
+
+### 切片引起内存泄漏问题
+
+```go
+func FindPhoneNumber(filename string) []byte {
+  b,_ := ioutil.ReadFile(filename)
+  return regexp.MustComplile("[0-9]+").Find(b)
+}
+```
+
+这段代码将加载整个文件到内存，然后搜索第一个出现的电话号码，最后以切片方式返回
+
+但是由于切片引用了整个原始数组，导致垃圾回收期不能及时释放底层数组的空间，需要长时间保存整个文件数据，降低系统的整体性能
+
+```go
+func FindPhoneNumber(filename string) []byte {
+  b,_ := ioutil.ReadFile(filename)
+  b = regexp.MustComplile("[0-9]+").Find(b)
+  return append( []byte{}, b...)   //返回一个新分配内存的切片
+}
+```
+
+
+
+### 切片强制类型转换
+
+将`[]float64` 类型的切片转换为`[]int`类型以进行高速排序
+
+需要`unsafe.Pointer`来连接两个不同类型的指针传递
+
+```go
+func SortFloat64V1(a []float64) {
+  //强转方法1，将切片起始地址转换为一个较大的数组指针，然后重新切片
+  var b []int = ((*[1<<20]int)(unsafe.Pointer(&a[0])))[:len(a):cap(a)]
+  sort.Ints(b)
+}
+
+func SortFloat64V2(a []float64) {
+  var c []int
+  //强转方法2，使用reflect
+  aHdr := (*reflect.SliceHeader)(unsafe.Pointer(&a))
+  cHdr := (*reflect.SliceHeader)(unsafe.Pointer(&c))
+	*cHdr = *aHdr
+  sort.Ints(c)
+}
+```
+
+
+
+### 切片还是传值
+
+只是切片中包含了 Len Cap 和一个数组指针，所以可以直接修改 切片内容
 
 ## 3. Map
 
@@ -1379,7 +1613,7 @@ for {
 }
 ```
 
-## 3. 匿名函数
+## 3. 匿名函数和闭包
 
 当匿名函数需要被递归调用时，我们必须首先声明一个变量，再将匿名函数赋值给这个变量。如果不分成两部，函数字面量无法与visitAll绑定，我们也无法递归调用该匿名函数
 
@@ -1404,6 +1638,29 @@ visitAll = func(items []string) {
 
 
 
+### 闭包
+
+
+匿名函数中捕获外部函数的局部变量，这种匿名函数一般称为`闭包`。**闭包对捕获的外部变量并不是以值传递的方式访问，而是以引用传递的方式访问**
+
+```go
+func Inc() (i int) {    //最后返回43
+  defer func() {i++}
+  return 42
+}
+```
+
+闭包可能带来一些隐含问题：因为是闭包，所以是加上defer执行时都是引用的同一个变量i，结束时i是3
+
+```go
+func main() {
+  for i:=0; i<3; i++ {
+    defer func(){ fmt.Print(i) }()
+  }
+}
+// 333
+```
+
 循环变量作用域问题：在 for 循环引进的一个块作用域内进行声明。在循环里创建的所有函数变量共享相同的变量，就是一个可访问的存储位置，而不是固定的值
 
 ```go
@@ -1424,6 +1681,11 @@ func main() {
 }
 // 输出 25 25 25 25 25
 ```
+
+
+
+解决办法：可以**作为参数传递进匿名函数**，而不是直接使用
+
 
 
 
@@ -1650,6 +1912,10 @@ func (p Point) Distance(q Point) float64 {
     return math.Hypot(q.X-p.X, q.Y-p.Y)
 }
 ```
+
+**方法必须定义在与该类型的同一个包下，所以我们不能给int这种内置类型定义方法**
+
+和函数一样，**不支持重载**
 
 ## 1. 方法的指针接收者和值接收者
 
@@ -2159,6 +2425,20 @@ func IsNotExist(err error) bool {
 
 
 
+## 8. 函数、方法、接口总结
+
+函数分为`具名函数`和`匿名函数`
+
+当匿名函数引用了外部作用域中的变量时就成了`闭包函数`，闭包是函数式变成语言的核心
+
+`方法`是绑定到具体类型的特殊函数，必须在编译时`静态绑定`
+
+`接口`定义了方法的集合，这些方法依托于运行时的接口对象，所以是在运行时`动态绑定`的
+
+
+
+
+
 # 七、Goroutines和Channels
 
 Go语言中的并发程序可以用两种手段来实现：
@@ -2176,7 +2456,7 @@ Go语言中，每一个并发的执行单元叫做一个goroutine
 
 **goroutine并不是线程，而是对线程的多路复用**
 
-一个goroutine启动时的栈大小仅为2KB，而一个OS线程的栈大小一般是2MB
+一个goroutine启动时的栈大小仅为2KB，而一个OS线程的栈大小一般是2MB，这个栈会用来存储当前正在被调用或挂起（指在调用其它函数时）的函数的内部变量
 
 当一个goroutine被阻塞时，它**也会阻塞所复用的OS线程**，runtime会把位于被阻塞线程上的**其他goroutine移动到其他未被阻塞的线程上**继续运行
 
@@ -2193,6 +2473,20 @@ runtime.GOMAXPROCS(1)      //分配一个逻辑处理器给调度器使用
 ```go
 runtime.GOMAXPROCS(runtime.NumCPU())   //分配逻辑处理器的数量=cpu核心数，每个cpu核心都分配一个逻辑处理器
 ```
+
+### 动态栈
+
+固定栈大小的缺陷：太小的栈空间虽然提高了空间利用率，但是递归调用容易栈溢出。太大的栈空间对那些只需要很小栈空间的线程来说是一个巨大的空间浪费
+
+goroutine的栈大小可以根据需要动态调整，一个goroutine会以一个很小的栈开始其生命周期，**一般只需要2KB**。一个goroutine的栈，和操作系统线程一样，会保存其活跃或挂起的函数调用的**本地变量**，但是和OS线程不太一样的是，一个goroutine的**栈大小并不是固定的**；栈的大小会根据需要动态地伸缩，**goroutine的栈的最大值有1GB**
+
+由于栈会变化，所以会将之前的数据移动到新的内存空间，所以**指针不再是固定不变的**
+
+
+
+### goroutines和线程
+
+每一个**OS线程**都有一个**固定大小的内存**块（一般会是2MB）来做栈，这个栈会用来存储当前正在被调用或挂起（指在调用其它函数时）的函数的内部变量。
 
 
 
@@ -2545,6 +2839,16 @@ go语言并没有提供在一个goroutine中终止另一个goroutine的方法，
 
 
 
+## 3. goroutine调度
+
+半抢占式：当前goroutine发生阻塞时才会导致调度
+
+发生在用户态：切换代价小
+
+
+
+
+
 # 八、 基于共享变量的并发
 
 一个提供对一个指定的变量通过channel来请求的goroutine叫做这个变量的monitor（监控）goroutine
@@ -2693,11 +2997,54 @@ func doWork(name string) {
 
 
 
-## goroutines和线程
+### 单例：sync.Once就基于atomic实现
 
-每一个**OS线程**都有一个**固定大小的内存**块（一般会是2MB）来做栈，这个栈会用来存储当前正在被调用或挂起（指在调用其它函数时）的函数的内部变量。
+```go
+type Once struct {
+	done uint32
+	m    Mutex
+}
 
-一个goroutine会以一个很小的栈开始其生命周期，**一般只需要2KB**。一个goroutine的栈，和操作系统线程一样，会保存其活跃或挂起的函数调用的**本地变量**，但是和OS线程不太一样的是，一个goroutine的**栈大小并不是固定的**；栈的大小会根据需要动态地伸缩。而**goroutine的栈的最大值有1GB**
+func (o *Once) Do(f func()) {
+	if atomic.LoadUint32(&o.done) == 0 {
+		o.doSlow(f)
+	}
+}
+
+func (o *Once) doSlow(f func()) {
+	o.m.Lock()
+	defer o.m.Unlock()
+	if o.done == 0 {     // DLC
+    //重要：必须要保证f执行完才能进行store，否则其他线程可能获取到没有初始化的对象
+		defer atomic.StoreUint32(&o.done, 1)   
+		f()
+	}
+}
+```
+
+
+
+## 5. 顺序一致性内存模型
+
+```go
+var a string
+var done bool
+
+func setup() {
+  a = "hello"
+  done = true
+}
+
+func main() {
+  go setup()
+  for !done {}
+  fmt.Println(a)
+}
+```
+
+并发的事件是无法确定发生顺序的。为了最大化并行，go编译器和处理器会在对语句/指令进行重排序，前提是保证 as-if-serial，保证 happens before 原则
+
+
 
 
 
