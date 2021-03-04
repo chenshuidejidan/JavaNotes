@@ -800,8 +800,3 @@ Consul中文文档：  https://kingfree.gitbook.io/consul/
 5. **Raft：** consul使用Raft算法维护server的leader和follower状态
 6. **Gossip：** Gossip协议负责成员管理、失败探测、事件广播等。某个节点了解集群内现在还有哪些节点，以及这些节点是Client还是Server。单数据中心的协议是LAN GOSSIP，使用8301端口。跨数据中心的协议是WAN GOSSIP，使用8302端口...gossip协议介绍：https://www.iteblog.com/archives/2505.html
 
-![consul架构](picture/goWeb与微服务/1587171916297_e0dabf1b72cb3fc7cb24d8c6df7c844b.png)
-
-张治权 512925197207043359
-
-张学海 512925196804053374
