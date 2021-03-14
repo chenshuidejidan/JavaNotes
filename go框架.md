@@ -529,3 +529,71 @@ db.Table("deleted_users").Select("count(distinct(name))").Count(&total)
 // SELECT count(distinct(name)) FROM deleted_users
 ```
 
+
+
+
+
+# 二、rpc框架
+
+一个函数需要能够被远程调用，需要满足如下五个条件：
+
+- the method’s type is exported.  //方法所属类型是导出的
+- the method is exported.  //方法是导出的
+- the method has two arguments, both exported (or builtin) types. //两个参数类型是导出的
+- the method’s second argument is a pointer.  //第二个参数是指针类型
+- the method has return type error.  //返回error
+
+```go
+func (t *T) MethodName(argType T1, replyType *T2) error
+```
+
+
+
+## 结构体和服务的映射
+
+客户端发来的请求包含ServiceMethod和Argv
+
+```go
+{
+    "ServiceMethod"： "T.MethodName"
+    "Argv"："0101110101..." // 序列化之后的字节流
+}
+```
+
+硬编码需要每个方法进行判断，编写很多代码
+
+好的办法可以借助**反射**，获取结构体的方法，通过方法获取方法的所有参数类型和返回值
+
+例如：
+
+```go
+func main() {
+	var wg sync.WaitGroup
+	typ := reflect.TypeOf(&wg)
+	for i := 0; i < typ.NumMethod(); i++ {
+		method := typ.Method(i)
+		argv := make([]string, 0, method.Type.NumIn())
+		returns := make([]string, 0, method.Type.NumOut())
+		// j 从 1 开始，第 0 个入参是 wg 自己。
+		for j := 1; j < method.Type.NumIn(); j++ {
+			argv = append(argv, method.Type.In(j).Name())
+		}
+		for j := 0; j < method.Type.NumOut(); j++ {
+			returns = append(returns, method.Type.Out(j).Name())
+		}
+		log.Printf("func (w *%s) %s(%s) %s",
+			typ.Elem().Name(),
+			method.Name,
+			strings.Join(argv, ","),
+			strings.Join(returns, ","))
+    }
+}
+
+//结果：
+//func (w *WaitGroup) Add(int)
+//func (w *WaitGroup) Done()
+//func (w *WaitGroup) Wait()
+```
+
+**通过反射实现Service**
+

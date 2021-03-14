@@ -1423,6 +1423,14 @@ func main() {
 
 
 
+### new和make
+
+new：申请了内存，但是不会将内存初始化，只会将内存置零，返回一个指针。
+
+make：申请了内存，返回已初始化的结构体的零值。
+
+
+
 
 
 ## 5. JSON
@@ -1841,7 +1849,7 @@ func Errorf(format string, args ...interface{}) error {
 
 一般而言，当panic异常发生时，程序会**中断运行**，并立即执行在该goroutine中**被延迟的函数**（defer 机制）。随后，程序**崩溃并输出日志信息**。日志信息包括panic value和函数调用的堆栈跟踪信息
 
-- 直接调用内置的panic函数也会引发panic异常，某些不该发生的场景发生时，我们可以主动调用panic表示路径不可达
+- **直接调用内置的panic函数也会引发panic异常**，某些不该发生的场景发生时，我们可以主动调用panic表示路径不可达
 
 ## 8. recover捕获异常
 
@@ -1880,13 +1888,22 @@ post...    //从panic中恢复，正常执行后续程序
 */
 ```
 
+
+
+Go语言库的习惯：即使包内部使用了panic，在导出函数时也会被转化为明确的错误值
+
 ```go
-//更标准的处理方式应该是：
-defer func(){
-    if err := recover(); err!=nil{
-        fmt.Println(err)   //处理错误信息
+//更好的处理方式应该是：
+func Xxxx() {
+  defer func(){
+    if err := recover(); err! = nil{
+      fmt.Errorf("Xxx: internal error: %v", err)   //处理错误信息
     }
-}()
+	}()
+  
+  .....
+} 
+
 ```
 
 
@@ -2096,6 +2113,18 @@ any = 12.34
 any = "hello"
 any = map[string]int{"one": 1}
 any = new(bytes.Buffer)
+```
+
+
+
+### 接口检查
+
+```go
+//1. 空值nil强转为 *GobCodec 类型，再转换(赋值)为Codec接口，IDE就可以帮我们验证GobCodec是否实现了Codec接口
+var _ Codec = (*GobCodec)(nil) 
+
+//2. 效果差不多
+var _ Codec = new(GobCodec)    
 ```
 
 
@@ -3202,11 +3231,19 @@ ok      github.com/sausheong/gwp/Chapter_8_Testing_Web_Applications/unit_testing
 
 # 十、反射
 
+程序在编译时，变量被转换为内存地址，变量名不会被编译器写入到可执行部分。在运行程序时，程序无法获取自身的信息
 
+反射是指**在程序运行期间对程序本身进行访问和修改的能力**
 
-## 1. reflect.Type 和 reflect.Value
+支持反射的语言可以**在程序编译期**将变量的**反射信息**，如**字段名称、类型信息、结构体信息等**整合到可执行文件中，并给程序提供接口访问反射信息，这样就可以在程序运行期获取类型的反射信息，并且有能力修改它们
 
-函数 reflect.TypeOf 接受任意的 interface{} 类型，并以 reflect.Type 形式返回其动态类型：
+Go语言使用reflect包访问程序的反射信息
+
+reflect包提供了两个重要的类型：`Type`和`Value`，任意接口值在反射中都可以理解为由 `reflect.Type` 和 `reflect.Value` 两部分组成。。reflect 包提供了 `reflect.TypeOf` 和 `reflect.ValueOf` 两个函数来获取任意对象的 Value 和 Type
+
+## 1. reflect.Type
+
+函数 reflect.TypeOf 接受任意的 interface{} 类型，并以 `reflect.Type` 形式返回其 **动态类型**：
 
 ```Go
 t := reflect.TypeOf(3)  // a reflect.Type
@@ -3216,7 +3253,146 @@ fmt.Println(t)          // "int"
 
 这里将3作为接口传递给TypeOf函数，即**将一个具体的值转为接口类型**，会有一个**隐式的接口转换**操作，它会创建一个包含两个信息的接口值：操作数的**动态类型**（这里是 int）和它的**动态的值**（这里是 3）
 
-- reflect.Type是一个**接口类型**
+```go
+    var a int
+    typeOfA := reflect.TypeOf(a)
+    fmt.Println(typeOfA.Name(), typeOfA.Kind())    //int  int
+```
+
+
+
+### 1.1 Kind和Name
+
+reflect包定义的对象的**反射种类(Kind)**：系统的原生数据类型以及使用type关键字定义的类型
+
+```go
+const (
+    Invalid Kind = iota  // 非法类型
+    Bool                 // 布尔型
+    Int                  // 有符号整型
+    Int8                 // 有符号8位整型
+    Int16                // 有符号16位整型
+    Int32                // 有符号32位整型
+    Int64                // 有符号64位整型
+    Uint                 // 无符号整型
+    Uint8                // 无符号8位整型
+    Uint16               // 无符号16位整型
+    Uint32               // 无符号32位整型
+    Uint64               // 无符号64位整型
+    Uintptr              // 指针
+    Float32              // 单精度浮点数
+    Float64              // 双精度浮点数
+    Complex64            // 64位复数类型
+    Complex128           // 128位复数类型
+    Array                // 数组
+    Chan                 // 通道
+    Func                 // 函数
+    Interface            // 接口
+    Map                  // 映射
+    Ptr                  // 指针
+    Slice                // 切片
+    String               // 字符串
+    Struct               // 结构体
+    UnsafePointer        // 底层指针
+)
+```
+
+Map、Slice、Chan 属于引用类型，使用起来类似于指针，但是在种类常量定义中仍然属于独立的种类，不属于 Ptr。type A struct{} 定义的结构体属于 Struct 种类，*A 属于 Ptr。
+
+
+
+获取对象名称和种类等信息：
+
+```go
+	m := mmmm{}
+	typeOfm := reflect.TypeOf(m)
+	fmt.Println(typeOfm.Name())       //mmmm 名称
+	fmt.Println(typeOfm.Kind())				//struct 种类
+	fmt.Println(typeOfm.String())     //main.mmmm
+
+type Enum int
+Zero Enum = 0
+    
+	typeOfA := reflect.TypeOf(Zero)
+  fmt.Println(typeOfA.Name(), typeOfA.Kind())  // Enum int
+```
+
+
+
+### 1.2 指针和Elem
+
+对于指针获取反射对象时，可以通过`reflect.Elem()`获取**指针指向的元素的反射对象`reflect.Value`**，相当于于`*`操作
+
+**指针变量的`Name`是空**
+
+```go
+	m2 := &mmmm{}
+	typeOfm2 := reflect.TypeOf(m2)
+	fmt.Println(typeOfm2.Name())    //指针变量的Name都是空
+	fmt.Println(typeOfm2.Kind(), typeOfm2.String(), typeOfm2.Elem())  //ptr *main.mmmm main.mmmm
+	
+	typeOfm2Elem := typeOfm2.Elem()  //获取到指针指向元素的类型
+	fmt.Println(typeOfm2Elem.Name(), typeOfm2Elem.Kind())   //mmmm struct
+```
+
+
+
+### 1.3 反射获取结构体成员类型
+
+任意值通过 reflect.TypeOf() 获得反射对象信息后，如果它的类型是**结构体**，可以通过反射值对象 reflect.Type 的 `NumField()` 和 `Field()` 方法获得结构体成员的详细信息
+
+StructField 的结构如下：
+
+```go
+type StructField struct {
+    Name string          // 字段名
+    PkgPath string       // 字段路径
+    Type      Type       // 字段反射类型对象
+    Tag       StructTag  // 字段的结构体标签
+    Offset    uintptr    // 字段在结构体中的相对偏移
+    Index     []int      // Type.FieldByIndex中的返回的索引值
+    Anonymous bool       // 是否为匿名字段
+}
+```
+
+
+
+- `Field(i int) StructField`	根据索引 i 返回索引对应的结构体字段的信息，当值不是结构体或索引超界时发生宕机
+- `NumField() int`	返回结构体成员字段数量，当类型不是结构体时发生宕机
+- `FieldByName(name string) (StructField, bool)`	根据给定字符串返回字符串对应的结构体字段的信息，没有找到时 bool 返回 false，当类型不是结构体或索引超界时发生宕机
+- `FieldByIndex(index []int) StructField`	多层成员访问时，根据 []int 提供的每个结构体的字段索引，返回字段的信息，没有找到时返回零值。当类型不是结构体或索引超界时发生宕
+- `FieldByNameFunc(match func(string) bool) (StructField,bool)`	根据匹配函数匹配需要的字段，当值不是结构体或索引超界时发生宕机
+
+```go
+	type cat struct {
+		Name string
+		// 带有结构体tag的字段
+		Type int `json:"type" id:"100"`
+	}
+	mycat := cat{Name: "mimi", Type: 1}
+	typeOfCat := reflect.TypeOf(mycat)
+	// 遍历结构体所有成员
+	for i := 0; i < typeOfCat.NumField(); i++ {
+		fieldType := typeOfCat.Field(i)
+		// 输出成员名和tag
+		fmt.Printf("name: %v  tag: '%v'\n", fieldType.Name, fieldType.Tag)
+	}
+	// 通过字段名, 找到字段类型信息
+	if catType, ok := typeOfCat.FieldByName("Type"); ok {
+		// 从tag中取出需要的tag
+		fmt.Println(catType.Tag.Get("json"), catType.Tag.Get("id"))
+	}
+
+/* 结果如下：
+  name: Name  tag: ''
+  name: Type  tag: 'json:"type" id:"100"'
+  type 100
+*/
+```
+
+
+
+### 1.4 reflect.Type是一个接口类型
 
 ```go
 type Type interface {
@@ -3230,6 +3406,10 @@ type Type interface {
         ...
 }
 ```
+
+
+
+## 2. reflect.Value
 
 - reflect.Value是一个**结构体类型**，这个结构体没有对外暴露的字段，但是提供了获取或者写入数据的方法
 
@@ -3263,9 +3443,94 @@ fmt.Printf("%d\n", i)   // "3"
 
  **fmt.Printf 提供的 %T 参数，内部就是使用 reflect.TypeOf 来输出**
 
+Type 和 Value 都有一个名为 Kind 的方法，它会返回一个常量，表示底层数据的类型，常见值有：Uint、Float64、Slice 等。
+
+### 2.1 获取值
+
+```go
+    // 声明整型变量a并赋初值
+    var a int = 1024
+    // 获取变量a的反射值对象
+    valueOfA := reflect.ValueOf(a)
+    // 获取interface{}类型的值, 通过类型断言转换
+    var getA int = valueOfA.Interface().(int)
+    // 获取64位的值, 强制类型转换为int类型
+    var getA2 int = int(valueOfA.Int())
+    fmt.Println(getA, getA2)               // 1024 1024
+```
 
 
-## 2. 三大法则
+
+### 2.2 修改数据
+
+Value 类型也有一些类似于 Int、Float 的方法，用来提取底层的数据：
+
+- Int 方法用来提取 int64
+- Float 方法用来提取 float64
+
+```go
+    var x float64 = 3.4
+    v := reflect.ValueOf(x)
+    fmt.Println("type:", v.Type())		//type: float64
+    fmt.Println("kind is float64:", v.Kind() == reflect.Float64)  //kind is float64: true
+    fmt.Println("value:", v.Float())  //value: 3.4
+```
+
+还有一些用来修改数据的方法，比如 SetInt、SetFloat。。。但是需要有`“可修改性”（settability）`,
+
+首先要求**可被寻址**(反射第三大法则)，其次必须是**导出的**
+
+ Value 的 getter 和 setter 方法：为了保证 API 的精简，这两个方法操作的是某一组类型**范围最大的那个**。比如，处理任何含符号整型数，都使用 `int64`也就是说 Value 类型的 Int 方法返回值为 int64 类型，SetInt 方法接收的参数类型也是 int64 类型。实际使用时，可能需要转化为实际的类型
+
+```go
+    var x uint8 = 'x'
+    v := reflect.ValueOf(x)
+    fmt.Println("type:", v.Type())                            // uint8.
+    fmt.Println("kind is uint8: ", v.Kind() == reflect.Uint8) // true.
+    x = uint8(v.Uint())                                       // v.Uint returns a uint64.
+```
+
+
+
+### 2.3 修改结构体字段值
+
+根据反射的第三法则，我们需要有结构体的指针，才可以修改它的字段
+
+```go
+    type T struct {
+        A int
+        B string
+    }
+    t := T{23, "skidoo"}
+    s := reflect.ValueOf(&t).Elem()  // 获取指针指向元素类型的反射对象 reflect.Value
+    typeOfT := s.Type()     // 获取指针指向元素类型的反射对象 reflect.Type
+    for i := 0; i < s.NumField(); i++ {
+        f := s.Field(i)
+        fmt.Printf("%d: %s %s = %v\n", i,
+            typeOfT.Field(i).Name, f.Type(), f.Interface())
+    }
+
+// 0: A int = 23
+// 1: B string = skidoo
+```
+
+修改:
+
+```go
+    type T struct {
+        A int
+        B string
+    }
+    t := T{23, "skidoo"}
+    s := reflect.ValueOf(&t).Elem()
+    s.Field(0).SetInt(77)
+    s.Field(1).SetString("Sunset Strip")
+    fmt.Println("t is now", t)    // t is now {77 Sunset Strip}
+```
+
+
+
+## 3. 反射三大法则
 
  Go 语言反射的三大法则：
 
@@ -3275,9 +3540,16 @@ fmt.Printf("%d\n", i)   // "3"
 
 
 
-详细介绍：
+### 3.1 反射可以将接口类型变量转换为反射类型对象
 
-1. reflect.TypeOf() 和 reflect.ValueOf() 可以**将go语言的 interface{} 对象转化为反射对象**，他们的参数类型都是 interface{}。。所以这可能会进行隐式的类型转换。 如果我们认为 **Go 语言的类型** 和 **反射类型**处于两个不同的世界，那么这两个函数就是连接这两个世界的桥梁
+`reflect.TypeOf()` 和 `reflect.ValueOf()` 可以**将go语言的 interface{} 对象转化为反射对象**，他们的参数类型都是 interface{}。。所以这可能会进行隐式的类型转换。 如果我们认为 **Go 语言的类型** 和 **反射类型**处于两个不同的世界，那么这两个函数就是连接这两个世界的桥梁
+
+```go
+func TypeOf(i interface{}) Type     //接收一切 interface{},返回reflect.Type
+func ValueOf(i interface{}) Value 
+```
+
+
 
 ![golang-interface-to-reflection](picture/go语言要点/golang-interface-to-reflection.png)
 
@@ -3298,7 +3570,15 @@ func main() {
 
 
 
-2. 反射的第二法则是我们可以从反射对象可以获取 `interface{}` 变量。既然能够将接口类型的变量转换成反射对象，那么一定需要其他方法将反射对象还原成接口类型的变量， `reflect.Value.Interface`就能完成这项工作：
+### 3.2 反射可以将反射类型对象转换为接口类型变量
+
+反射的第二法则是我们可以从反射对象可以获取 `interface{}` 变量。既然能够将接口类型的变量转换成反射对象，那么一定需要其他方法将反射对象还原成接口类型的变量， `reflect.Value.Interface`就能完成这项工作：
+
+```go
+func (v Value) Interface() interface{}    //返回interface{}
+```
+
+
 
 ![golang-reflection-to-interface](picture/go语言要点/golang-reflection-to-interface.png)
 
@@ -3313,22 +3593,33 @@ v.Interface().(int)   //通过类型断言，将 interface{} 类型转化为了 
 
 ![img](picture/go语言要点/golang-bidirectional-reflection.png)
 
-当然如果变量本身就是 `interface{}` 类型的，那么它不需要类型转换，因为类型转换这一过程一般都是隐式的，所以我不太需要关心它，只有在我们需要将反射对象转换回基本类型时才需要显式的转换操作
+当然如果变量本身就是 `interface{}` 类型的，那么它不需要类型转换，因为类型转换这一过程一般都是隐式的，所以我不太需要关心它，**只有在我们需要将反射对象转换回基本类型时才需要显式的转换操作**
 
 
 
-3. 最后一条法则是与值是否可以被更改有关，如果我们想要更新一个 `reflect.Value`，那么它持有的值一定是可以被更新的
+标准库中的 fmt.Println 和 fmt.Printf 等函数都接收空接口变量作为参数，**fmt 包内部会对接口变量进行拆包**，因此 fmt 包的打印函数在打印 reflect.Value 类型变量的数据时，只需要把 Interface 方法的结果传给格式化打印程序：
+
+```go
+	fmt.Println(v.Interface())
+```
+
+
+
+### 3.3 要修改反射类型对象，其值必须是可写的
+
+最后一条法则是与值是否可以被更改有关，如果我们想要更新一个 `reflect.Value`，那么它持有的值一定是可以被更新的。可以通过 `CanSet()` 方法检查一个 `reflect.Value` 类型变量的可写性
 
 ```go
 func main() {
 	i := 1
 	v := reflect.ValueOf(i)
+  fmt.Println(v.CanSet())  // false
 	v.SetInt(10)     //panic: reflect: reflect.flag.mustBeAssignable using unaddressable value
 	fmt.Println(i)
 }
 ```
 
-由于go语言的函数调用都是**值传递**，**我们得到的反射对象和最开始的变量没有任何关系**，所以直接修改反射对象无法改变原始变量，程序为了防止错误就会崩溃
+由于go语言的函数调用都是**值传递**，`reflect.ValueOf` 函数的变量 i 实际上只是 i 的一个拷贝，而非i本身。**我们得到的反射对象和最开始的变量没有任何关系**，所以直接修改反射对象无法改变原始变量，程序为了防止错误就会崩溃
 
 **要修改原变量只能使用如下的方法：**
 
@@ -3371,6 +3662,52 @@ func toType(t *rtype) Type {
 		return nil
 	}
 	return t
+}
+```
+
+
+
+## 4. 通过类型信息创建实例
+
+当已知 reflect.Type 时，可以动态地创建这个类型的实例，实例的类型为指针。例如 reflect.Type 的类型为 int 时，创建 int 的指针，即`*int`
+
+```go
+    var a int
+
+    // 取变量a的反射类型对象
+    typeOfA := reflect.TypeOf(a)
+
+		// 根据反射类型对象创建类型实例
+    aIns := reflect.New(typeOfA)
+    
+		// 输出Value的类型和种类
+    fmt.Println(aIns.Type(), aIns.Kind())     //*int  ptr
+```
+
+
+
+## 5. 通过反射调用函数
+
+需要构建大量的 reflect.Value 和中间变量，检查参数，还要将参数复制到调用函数的参数内存中，调用完毕再将返回值转换为 reflect.Value ，性能非常差
+
+```go
+// 普通函数
+func add(a, b int) int {
+    return a + b
+}
+
+func main() {
+    // 将函数包装为反射值对象
+    funcValue := reflect.ValueOf(add)
+
+  	// 构造函数参数, 传入两个整型值
+    paramList := []reflect.Value{reflect.ValueOf(10), reflect.ValueOf(20)}
+    
+  	// 反射调用函数
+    retList := funcValue.Call(paramList)
+    
+  	// 获取第一个返回值, 取整数值
+    fmt.Println(retList[0].Int())
 }
 ```
 
@@ -3615,4 +3952,56 @@ func (f *File) Write(b []byte) (n int, err error) {  //File也实现了io.Writer
 ```
 
 
+
+## 4. json和gob编解码
+
+```go
+type MyInfo struct {
+	S       string
+	I, J, K int
+}
+
+type MyReadWriter struct {
+	Buf *bytes.Buffer
+}
+
+func (m MyReadWriter) Write(p []byte) (n int, err error) {
+	return m.Buf.Write(p)
+}
+
+func (m MyReadWriter) Read(p []byte) (n int, err error) {
+	return m.Buf.Read(p)
+}
+
+func main() {
+	ms := MyInfo{
+		S: "aabbccdd",
+		I: 1000,
+		J: 200,
+		K: 10,
+	}
+	s := MyReadWriter{
+		Buf: new(bytes.Buffer),
+	}
+	var enc = gob.NewEncoder(s.Buf)    //需要一个writer，将编码结果写入
+	var dec = gob.NewDecoder(s.Buf)    //需要一个reader，读取解码信息
+	if err := enc.Encode(&ms); err != nil {
+		fmt.Println("encode error:", err)
+	}
+	fmt.Println("编码后：", s.Buf)
+	var decMsg MyInfo
+	dec.Decode(&decMsg)
+	fmt.Println("解码得：", decMsg)
+
+	var enc2 = json.NewEncoder(s.Buf)
+	var dec2 = json.NewDecoder(s.Buf)
+	if err := enc2.Encode(&ms); err != nil {
+		fmt.Println("encode error:", err)
+	}
+	fmt.Println("编码后：", s.Buf)
+	var decMsg2 MyInfo
+	dec2.Decode(&decMsg2)
+	fmt.Println("解码得：", decMsg2)
+}
+```
 
