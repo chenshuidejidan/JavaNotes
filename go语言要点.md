@@ -1746,13 +1746,27 @@ func lookup(key string) int {
 }
 ```
 
+
+
+### 多重defer
+
+注意：
+
 ```go
 //注意defer加载和传值的时间
 
-a:=10
-defer func(){fmt.Println(a)}()
-defer func(a int){fmt.Println(a)}(a)
-a = 100
+func main() {
+	a := 10
+	defer func() {            
+		fmt.Println(a)
+	}()
+
+	defer func(a int) {			// 此时，将a=10传递给了func的函数参数，只是函数被延迟执行
+		fmt.Println(a)      
+	}(a)
+
+	a = 100
+}
 
 /*
 10
@@ -1761,6 +1775,8 @@ a = 100
 ```
 
 
+
+### 使用defer记录函数执行时间
 
 **记录函数的执行时间：** bigSlowOperation被调时，**trace会返回一个匿名函数func()**，该**函数值会在bigSlowOperation退出时被调用**。通过这种方式， 我们可以只通过一条语句控制函数的入口和所有的出口，甚至可以记录函数的运行时间，如例子中的start。需要注意一点：**不要忘记defer语句后的圆括号**，否则本该在进入时执行的操作会在退出时执行，而本该在退出时执行的，永远不会被执行
 
@@ -1781,6 +1797,10 @@ func trace(msg string) func() {
 
 defer在return之后执行，但是可以修改return返回给调用者的值
 
+
+
+### defer的小坑-循环
+
 循环体中的defer语句会被延迟到循环执行完毕之后才会执行，解决方法是把循环体中的defer放到另一个函数中，每次循环调用该函数
 
 ```go
@@ -1798,6 +1818,56 @@ func doFile(filename string) error {
     // ...process f…
 }
 ```
+
+
+
+### defer的小坑-返回值
+
+```go
+func hello1(i *int) (j int) {
+	defer func() {
+		j = 19
+	}()
+	j = *i
+	return j
+}
+
+func hello2(i *int) (j int) {
+	defer func() {
+		j = 19
+	}()
+	return *i
+}
+
+func hello3(i *int) int {
+	defer func() {
+		*i = 19
+	}()
+	return *i
+}
+
+func main() {
+	i := 10
+	j := hello1(&i)
+	fmt.Println(i, j)
+	i = 10
+	j = hello2(&i)
+	fmt.Println(i, j)
+	i = 10
+	j = hello3(&i)
+	fmt.Println(i, j)
+}
+```
+
+输出：
+
+```go
+10 19
+10 19
+19 10
+```
+
+总结：**命名返回值，就好比函数参数一样，函数体内对命名返回值的任何修改，都会影响它。而非命名返回值，取决于 return 时候的值**，之后defer的修改不能影响到返回值了
 
 
 
