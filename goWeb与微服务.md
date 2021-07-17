@@ -821,7 +821,7 @@ Paxos有三种实现版本：**Basic-Paxos版本**，**Multi-Paxos版本**，**F
 
 
 
-两轮RPC就是为了确定讨论谁的提案，活锁的问题也是因为有多个Proposer，基于这个问题，有了Multi-Paxos算法
+Basic-Paxos算法是一个纯粹的**去中心化的分布式算法**，两轮RPC为了确定讨论谁的提案会造成较大的网络开销，活锁的问题也是因为有多个Proposer，基于这个问题，有了**以Leader Proposer为核心的Multi-Paxos算法**
 
 **Multi-Paxos算法：**
 
@@ -843,7 +843,10 @@ Multi-Paxos的每个Leader的任期开始的第一轮RPC其实就是选主
 
 Multi Paxos角色过多，对于计算机集群而言，可以将Proposer、Acceptor和Learner三者身份**集中在一个节点上**，此时只需要从集群中选出Proposer，其他节点都是Acceptor和Learner，这就是接下来要讨论的Raft算法
 
-**Paxos算法不容易实现，Raft算法是对Multi-Paxos算法的简化和改进**
+**Paxos算法不容易实现，Raft算法是对Multi-Paxos算法的简化和改进**，主要增加了两个限制：
+
+1. 日志添加次序性：raft要求日志必须串行的连续添加，而multi-paxos是可以并发添加日志的，没有顺序要求
+2. 选主限制：raft要求拥有最新日志的节点才有资格成为Leader，因为日志的串行性，可以根据日志确定最新的节点。而Multi-Paxos由于日志是并发添加的，无法确定最新日志的节点，所以可以选择任意节点作为leader
 
 
 
@@ -905,13 +908,21 @@ Leader选出后，就开始接收客户端的请求。Leader把请求作为日�
 
 Leader发生改变的时候，会以最小的log index作为起点，所有的follower一起复制新Leader的日志条目
 
+Raft 算法规定 **follower 强制复制 leader 节点的日志**，即 follower 不一致日志都会被 leader 的日志覆盖，最终 follower 和 leader 保持一致。简单的说，从前向后寻找 follower 和 leader 第一个公共 LogIndex 的位置，然后从这个位置开始，follower 强制复制 leader 的日志
+
 ![raft的日志复制](picture/goWeb与微服务/raft的日志复制.jpg)
 
 
 
-**安全问题：**
+**安全问题--选举安全性**
 
-如果发生分区（脑裂）：
+选举安全性：避免脑裂。选举安全性要求一个term内只有一个leader，即不能出现脑裂，否则raft日志复制原则很可能出现数据覆盖丢失
+
+raft通过下面的举措保证这个问题：
+
+1. 一个term内，follower只会投一次票，先来先得
+2. Candidate存储的日志至少要和follower一样新
+3. 只有超过半数投票才有机会成为leader
 
 ![image-20210715214623572](picture/goWeb与微服务/image-20210715214623572.png)
 
@@ -920,6 +931,12 @@ Leader发生改变的时候，会以最小的log index作为起点，所有的fo
 当分区解决后，系统连通，Node B 发现 Node C的term更大，**Node A B都会放弃自己未提交的日志**，然后去复制Node C最新的内容
 
 ![image-20210715215031483](picture/goWeb与微服务/image-20210715215031483.png)
+
+**安全性问题--日志安全**
+
+raft规定，所有的数据请求都要交给leader处理，日志只能由leader添加和修改
+
+选举时，限制新leader日志包含所有已提交的日志项，即leader必须具备最新提交日志
 
 
 
