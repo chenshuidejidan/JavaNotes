@@ -73,9 +73,9 @@ func main() {
 
 ### 3.1 变量声明
 
-- var 变量名 类型 = 表达式
+- `var 变量名 类型 = 表达式`
 
-在函数内部还可以使用简短的形式声明。   变量名:=表达式
+在函数内部还可以使用简短的形式声明。   `变量名:=表达式`
 
 零值初始化机制可以确保每个声明的变量总是有一个良好定义的值，因此在Go语言中不存在未初始化的变量
 
@@ -84,8 +84,8 @@ var i, j, k int                 // int, int, int
 var b, f, s = true, 2.3, "four" // bool, float64, string
 ```
 
-- 包级别声明的变量在main函数执行前完成初始化（所以声明顺序无关紧要）
-- 函数级别的变量（局部变量）在语句被执行到的时候完成初始化（必须先声明后使用）
+- **包级别**声明的变量在main函数执行前完成初始化（所以声明顺序无关紧要）
+- **函数级别**的变量（局部变量）在语句被执行到的时候完成初始化（必须先声明后使用）
 
 ### 3.2 指针变量
 
@@ -103,7 +103,7 @@ fmt.Println(x)  // "2"
 
 任何类型的指针的零值都是`nil`
 
-在Go语言中，返回函数中局部变量的地址也是安全的。例如下面的代码，调用f函数时创建局部变量v，在局部变量地址被返回之后依然有效，因为指针p依然引用这个变量
+在Go语言中，**返回函数中局部变量的地址也是安全的**。例如下面的代码，调用f函数时创建局部变量v，在局部变量地址被返回之后依然有效，因为指针p依然引用这个变量
 
 ```go
 var p = f()
@@ -149,14 +149,16 @@ p := new(int) 也就相当于 var t int,  p := &t
 
 
 
+
+
 ### 3.4 变量的生命周期
 
 - 包级别声明的变量的生命周期和整个程序的生命周期一致
-- 局部变量有动态的生命周期：从创建该局部变量起，到该变量不再有引用为止。。因此局部变量可能超出其局部作用域，在函数返回之后依然存在。。**对于逃逸的局部变量，必须分配在堆上**，对于没有逃逸的局部变量，编译器可以选择分配在栈上。（也可以分配在堆上由gc进行回收）
+- **局部变量**有动态的生命周期：从创建该局部变量起，到该变量不再有引用为止。。因此局部变量可能超出其局部作用域，在函数返回之后依然存在。。**对于逃逸的局部变量，必须分配在堆上**，对于没有逃逸的局部变量，编译器可以选择分配在栈上。（也可以分配在堆上由gc进行回收）
 
 ### 3.5 赋值
 
-**元组赋值：**在赋值之前，赋值语句右边的所有表达式将会先进行求值，然后再统一更新左边对应变量的值
+**元组赋值：**在赋值之前，**赋值语句右边的所有表达式将会先进行求值**，然后再统一更新左边对应变量的值
 
 ```go
 x, y = y, x
@@ -169,13 +171,13 @@ _, err = io.Copy(dst, src) // 丢弃字节数
 _, ok = x.(T)              // 只检测类型，忽略具体值
 ```
 
-**可赋值性：**类型必须完全匹配才能进行赋值，nil可以赋值给任何指针或引用类型的变量
+**可赋值性：**类型必须**完全匹配**才能进行赋值，nil可以赋值给任何指针或引用类型的变量
 
 对于两个值是否可以用`==`或`!=`进行相等比较的能力也和可赋值能力有关系：对于任何类型的值的相等比较，第二个值必须是对第一个值类型对应的变量是可赋值的，反之亦然
 
 
 
-**退化赋值：** 简短模式并不总是重新定义变量，也可能是部分退化的赋值操作。
+**退化赋值：** 简短模式并不总是重新定义变量，也可能是部分退化的赋值操作。（能同时完成**赋值**和**定义新的变量**）
 
 ```go
 func main() {
@@ -245,13 +247,11 @@ func FToC(f Fahrenheit) Celsius { return Celsius((f - 32) * 5 / 9) }
 
 它们虽然有着相同的底层类型float64，但是**它们是不同的数据类型**，因此它们**不可以被相互比较**或**混在一个表达式运算**
 
-**类型转换：** 只有当两个类型的底层基础类型相同时，才允许这种转型操作，或者是两者都是指向相同底层结构的指针类型，这些转换只改变类型而不会影响值本身
+**类型转换T(x)：** 只有当两个类型的**底层基础类型相同**时，才允许这种转型操作，或者是两者都是指向相同底层结构的指针类型，这些转换只改变类型而不会影响值本身
 
 数值类型之间的转型也是允许的，并且在字符串和一些特定类型的slice之间也是可以转换的
 
-
-
-比较运算符`==`和`<`也可以用来比较一个命名类型的变量和另一个有相同类型的变量，或有着相同底层类型的未命名类型的值之间做比较。但是如果两个值有着不同的类型，则不能直接进行比较：
+比较运算符`==`和`<`也可以用来比较一个命名类型的变量和另一个有相同类型的变量，或有着相同底层类型的未命名类型的值之间做比较。**但是如果两个值有着不同的类型，则不能直接进行比较**：
 
 ```go
 var c Celsius
@@ -264,6 +264,8 @@ fmt.Println(c == Celsius(f)) // "true"!
 
 **Celsius(f)是类型转换操作，它并不会改变值**，仅仅是改变值的类型而已。测试为真的原因是因为c和g都是零值
 
+底层数据类型决定了内部结构和表达方式，也决定是否可以像底层类型一样对内置运算符的 支持。这意味着，Celsius和Fahrenheit类型的算术运算行为和底层的float64类型是一样的，
+
 ### 3.7 包、文件、init函数
 
 对于在包级别声明的变量，如果有初始化表达式则用表达式初始化，还有一些没有初始化表达式的，例如某些表格数据初始化并不是一个简单的赋值过程。在这种情况下，我们可以用一个特殊的init初始化函数来简化初始化工作。每个文件都可以包含多个init初始化函数
@@ -272,11 +274,11 @@ fmt.Println(c == Celsius(f)) // "true"!
 func init() { /* ... */ }
 ```
 
-这样的init初始化函数除了不能被调用或引用外，其他行为和普通函数类似。在每个文件中的init初始化函数，在程序开始执行时按照它们声明的顺序被自动调用
+这样的init初始化函数除了**不能被调用或引用**外，其他行为和普通函数类似。在每个文件中的init初始化函数，在程序开始执行时按照它们声明的顺序被自动调用
 
 
 
-初始化工作是自下而上进行的，main包最后被初始化。以这种方式，可以确保在main函数执行之前，所有依赖的包都已经完成初始化工作了。同时p包若导入了q包，p包初始化的时候就认为q包已经初始化完成了
+**初始化工作是自下而上进行的，main包最后被初始化**。以这种方式，可以确保在main函数执行之前，所有依赖的包都已经完成初始化工作了。同时p包若导入了q包，p包初始化的时候就认为q包已经初始化完成了
 
 
 
@@ -284,7 +286,7 @@ func init() { /* ... */ }
 
 
 
-**编译器查找import的包：** 首先查找Go的安装目录，然后按顺序查找GOPATH变量里的目录，未找到则会在执行run或者build的时候报错
+**编译器查找import的包：** 首先查找**Go的安装目录** `GOROOT`，然后按顺序查找`GOPATH`变量里的目录，未找到则会在执行run或者build的时候报错
 
 
 
@@ -297,7 +299,7 @@ import(
 )
 ```
 
-**空白标识符：** 给导入的包赋予一个空名字`_` ，可以避免不使用该包的报错，但是init函数依然会执行，例如数据库驱动包的init函数将自己注册到sql包
+**空白标识符：** 给导入的包赋予一个空名字`_` ，可以避免不使用该包的报错，但是**init函数依然会执行**，例如数据库驱动包的init函数将自己注册到sql包
 
 
 
@@ -328,15 +330,15 @@ fmt.Println(x, y) // compile error: x and y are not visible here
 
 int和uint则根据机器字长变化，32或64位
 
-Unicode字符rune类型和int32类型等价
+Unicode字符`rune`类型和`int32`类型**等价** `type rune = int32`
 
-byte类型和int8类型等价
+`byte`类型和`uint8`类型**等价 ** `type byte = int8`
 
 uintptr：没有指定具体的bit大小，但是足以容纳指针
 
 
 
-`&^`位清空运算符：z = x &^ y，如果y为1，则z为0，如果y为0，则z为x
+`&^`**位清空**运算符：z = x &^ y，如果对应y中bit位为1的话, 表达式 z = x &^ y 结果z的对应的bit位为0，否则z对应的 bit位等于x相应的bit位的值
 
 ```go
 o := 0666
@@ -393,7 +395,7 @@ true和false
 
 &&的优先级比｜｜高
 
-布尔类型不会隐式转换为0，1，如有需要应该手动进行转换
+**布尔类型不会隐式转换为0，1**，如有需要应该手动进行转换
 
 ## 5. 字符串
 
@@ -417,9 +419,12 @@ fmt.Println((*reflect.StringHeader)(unsafe.Pointer(&s)).Len)
 
 
 
-字符串是utf8编码的，字符串通常被解释成UTF-8编码的Unicode码点（rune）序列(使用for range循环即可)
+字符串是utf8编码的，字符串通常被解释成UTF-8编码的Unicode码点（`rune`）序列(使用**for range循环**即可)
 
 字符串是**不可改变的字节序列**，len函数返回字符串的**字节数目**！所以第i个字节并不一定是字符串的第i个字符，因为对于非ASCII字符的UTF8编码会要两个或多个字节
+
+- **string可以为空（长度为0），但不会是nil**；
+- **string对象不可以修改**。
 
 ```go
 	s := "left foot"
@@ -452,7 +457,7 @@ Utf-8编码是前缀编码，没有任何字符的编码是其它字符编码的
 
 **目前rune(unicode码点)只使用了21位**
 
-**utf8解码器**可以帮助我们解码原生的utf8编码的字符串，另外range循环处理字符串的时候会隐式的解码utf8
+**utf8解码器**可以帮助我们解码原生的utf8编码的字符串，另外**range循环处理字符串**的时候会隐式的解码utf8
 
 `for range`不支持非utf8编码的字符串的遍历，非utf8编码的字符串可以看做是**只读的二进制数组**
 
@@ -529,7 +534,7 @@ e4 b8 96    // 11100100  10111000 10010110
 **字符串和byte切片：bytes、strings、strconv、unicode包**
 
 - strings包提供了许多如字符串的查询、替换、比较、截断、拆分和合并等功能。
-- bytes包也提供了很多类似功能的函数，但是针对和字符串有着相同结构的[]byte类型。因为字符串是只读的，因此逐步构建字符串会导致很多分配和复制。在这种情况下，使用bytes.Buffer类型将会更有效
+- bytes包也提供了很多类似功能的函数，但是针对和字符串有着相同结构的[]byte类型。因为字符串是只读的，因此逐步构建字符串会导致很多分配和复制。在这种情况下，使用`bytes.Buffer`类型将会更有效
 - strconv包提供了布尔型、整型数、浮点数和对应字符串的相互转换，还提供了双引号转义相关的转换
 - unicode包提供了IsDigit、IsLetter、IsUpper和IsLower等类似功能，它们用于给字符分类。每个函数有一个单一的rune类型的参数，然后返回一个布尔值。而像ToUpper和ToLower之类的转换函数将用于rune字符的大小写转换。所有的这些函数都是遵循Unicode标准定义的字母、数字等分类规范。strings包也有类似的函数，它们是ToUpper和ToLower，将原始字符串的每个字符都做相应的转换，然后返回新的字符串
 
@@ -552,7 +557,7 @@ func basename(s string) string {
 
 一个[]byte(s)转换是分配了一个新的字节数组用于保存字符串数据的拷贝，然后引用这个底层的字节数组.. 因为string是不可变的
 
-**strings提供的函数**如下：
+**strings提供的函数**如下： 
 
 ```go
 func Contains(s, substr string) bool   //是否存在指定的子串
@@ -596,16 +601,16 @@ func intsToString(values []int) string {
 ```go
 x := 123
 y := fmt.Sprintf("%d", x)
-fmt.Println(y, strconv.Itoa(x)) // "123 123"
+fmt.Println(y, strconv.Itoa(x)) // 123 123
 ```
 
-FormatInt和FormatUint函数可以用不同的进制来格式化数字：
+`FormatInt`和FormatUint函数可以用不同的进制来格式化数字：
 
 ```go
 fmt.Println(strconv.FormatInt(int64(x), 2)) // "1111011"
 ```
 
-如果要将一个字符串解析为整数，可以使用strconv包的Atoi或ParseInt函数，还有用于解析无符号整数的ParseUint函数：
+如果要将一个字符串解析为整数，可以使用strconv包的Atoi或`ParseInt`函数，还有用于解析无符号整数的ParseUint函数：
 
 ```go
 x, err := strconv.Atoi("123")             // x is an int
@@ -650,7 +655,7 @@ const myConst int64 = 9223372036854775808543522345  // overflows int64 不会编
 
 
 
-**变量之间是不会进行隐式类型转换的，而常量与变量会经常发生隐式类型转换**
+**`变量之间`是`不会`进行隐式类型转换的，而`常量与变量会`经常发生隐式类型转换**
 
 ```go
 var myInt int = 123.0     // 浮点数常量隐式转换为整型变量
@@ -836,7 +841,7 @@ s = []int{}    // len(s) == 0, s != nil
 s = make([]int, 0) // len(s) == 0, s != nil
 ```
 
-除了和nil相等比较外，**一个nil值的slice的行为和其它任意0长度的slice一样**；例如reverse(nil)也是安全的。除了文档已经明确说明的地方，所有的Go语言函数应该以相同的方式对待nil值的slice和0长度的slice
+除了和nil相等比较外，**一个nil值的slice的行为和其它任意0长度的slice一样**；例如reverse(nil)也是安全的。除了文档已经明确说明的地方，所有的`Go语言函数应该以相同的方式对待nil值的slice和0长度的slice`
 
 
 
@@ -1050,7 +1055,7 @@ var a []int
 a = append( a[:i], append([]int{1,2,3}, a[i:]...)... )   //在第i个位置插入切片
 ```
 
-为了避免append创建中间的临时切片，可以使用`copy()和append()`组合：
+为了避免append创建中间的临时切片，可以使用`copy()和append()`组合：它们会改变底层数组
 
 ```go
 a = append(a, x...)   //保证切片 a 扩展到足够的空间,没有可以直接扩展切片的方法
@@ -1233,7 +1238,7 @@ ages := map[string]int{
 ages := map[string]int{}
 ```
 
-删除map中的元素：这个操作是安全的，当删除某个map中不存在的key时，会返回value对应的零值
+删除map中的元素：这个操作是安全的，当删除某个map中不存在的key时，会返回value对应的零值，**`但是并不会在map中添加新的键值对`**
 
 ```go
 delete(ages, "alice") // remove element ages["alice"]
@@ -1268,12 +1273,16 @@ if age, ok := ages["bob"]; !ok { /* ... */ }
 
 
 
+
+
+
+
 ### 空map和nil map
 
 ```go
 	var ages map[string]int    // nil
-	ages1 := make(map[string]int, 0)  // !=nil
-	ages2 := map[string]int{}  // ！=nil
+	ages1 := make(map[string]int, 0)  // != nil
+	ages2 := map[string]int{}  // != nil
 	ages3 := map[string]int(nil)  // nil
 ```
 
@@ -1345,9 +1354,28 @@ type hmap struct {
 
 	extra *mapextra
 }
+
+type mapextra struct {
+	overflow    *[]*bmap
+	oldoverflow *[]*bmap
+
+	nextOverflow *bmap
+}
+
+// A bucket for a Go map.
+type bmap struct {
+	tophash [bucketCnt]uint8
+}
+
 ```
 
+[由浅到深，入门Go语言Map实现原理 - Go语言中文网 - Golang中文社区 (studygolang.com)](https://studygolang.com/articles/32943)
 
+[Golang Map实现（一） - 搬砖程序员带你飞 - 博客园 (cnblogs.com)](https://www.cnblogs.com/-lee/p/12777241.html)
+
+[Golang Map 实现 （四） map的赋值和扩容 - Go语言中文网 - Golang中文社区 (studygolang.com)](https://studygolang.com/articles/28350)
+
+[深入理解 Go map：赋值和扩容迁移 - Go语言中文网 - Golang中文社区 (studygolang.com)](https://studygolang.com/articles/19251)
 
 ## 4. 结构体
 
@@ -1381,7 +1409,7 @@ EmployeeByID(id).Salary = 0 // fired for... no real reason
 
 **一个命名为S的结构体类型将不能再包含S类型的成员：因为一个聚合的值不能包含它自身**。但是S类型的结构体**可以包含`*S`指针类型**的成员，这可以让我们创建递归的数据结构，比如链表和树结构等
 
-- 可以使用空的struct和map来模拟set。struct{}表示空的struct，它的大小为0，也不包含任何信息
+- 可以使用空的struct和map来模拟set。**struct{}表示空的struct，它的大小为0，也不包含任何信息**
 
 ```go
 seen := make(map[string]struct{}) // set of strings
@@ -1459,7 +1487,7 @@ w = Wheel{
 
 
 
-**当匿名嵌入是非公开的时，无法直接通过结构体字面量的方式初始化匿名的内部类型，不过由于类型提升，依然可以设置内部类型的公开成员的值（内部类型的标识符提升到了外部类型）**
+**当匿名嵌入是非公开的时，无法直接通过结构体字面量的方式初始化匿名的内部类型，不过由于类型提升，依然可以设置内部类型的公开成员的值（内部类型的标识符提升到了外部类型）**!!!!!!!!!!!!!!!!!
 
 ```go
 package important
@@ -1545,7 +1573,7 @@ Actors":["Steve McQueen","Jacqueline Bisset"]}]
 data, err := json.MarshalIndent(movies, "", "    ")  //格式化的json
 ```
 
-使用`json.Unmarshal`进行解码，将json解码为go语言的数据类型，可以只解码我们关注的字段
+使用`json.Unmarshal`进行解码，将json解码为go语言的数据类型，可以**只解码我们关注的字段**
 
 ```go
 var titles []struct{ Title string }
@@ -1563,7 +1591,7 @@ fmt.Println(titles) // "[{Casablanca} {Cool Hand Luke} {Bullitt}]"
 
 ## 7. 基本类型和引用类型
 
-基本类型(内置类型)：数值，字符串，布尔
+基本类型(内置类型)：数值，字符串，布尔，数组和结构体
 
 引用类型：切片、map、channel、接口、函数
 
@@ -1677,7 +1705,7 @@ if err := Ping(); err != nil {
 
 ### 文件结尾错误EOF
 
-io包保证任何由文件结束引起的读取失败都返回同一个错误——io.EOF
+io包保证任何由**文件结束引起的读取失败**都返回同一个错误——`io.EOF`
 
 可以以此来判断文件是否读取完毕
 
@@ -1697,7 +1725,7 @@ for {
 
 ## 3. 匿名函数和闭包
 
-当匿名函数需要被递归调用时，我们必须首先声明一个变量，再将匿名函数赋值给这个变量。如果不分成两部，函数字面量无法与visitAll绑定，我们也无法递归调用该匿名函数
+当匿名函数需要被递归调用时，我们必须首先声明一个变量，再将匿名函数赋值给这个变量。如果不分成两部，函数字面量无法与visitAll绑定，我们也无法递归调用该匿名函数，`因为此时visitAll还没声明`
 
 ```go
 visitAll := func(items []string) {
@@ -1743,25 +1771,40 @@ func main() {
 // 333
 ```
 
-循环变量作用域问题：在 for 循环引进的一个块作用域内进行声明。在循环里创建的所有函数变量共享相同的变量，就是一个可访问的存储位置，而不是固定的值
+**循环变量作用域问题**：在 for 循环引进的一个块作用域内进行声明。在循环里创建的所有函数变量共享相同的变量，就是一个可访问的存储位置，而不是固定的值
 
 ```go
 var slice []func()
 
 func main() {
-    sli := []int{1, 2, 3, 4, 5}
-    for _, v := range sli {
-        fmt.Println(&v)
-        slice = append(slice, func(){
-            fmt.Println(v) // 直接打印结果
-        })
-    }
+	sli := []int{1, 2, 3, 4, 5}
+	var a = 10
+	for _, v := range sli {
+		fmt.Println(&v)
+		slice = append(slice, func(){
+			a++
+			fmt.Println(v, &v)
+			fmt.Println(a, &a) // 直接打印结果
+		})
+	}
 
-    for _, val  := range slice {
-        val()
-    }
+	for _, val  := range slice {
+		val()
+	}
 }
-// 输出 25 25 25 25 25
+
+/*
+5  0xc00000a0b8
+11 0xc00000a098
+5  0xc00000a0b8
+12 0xc00000a098
+5  0xc00000a0b8
+13 0xc00000a098
+5  0xc00000a0b8
+14 0xc00000a098
+5  0xc00000a0b8
+15 0xc00000a098
+*/
 ```
 
 
@@ -1795,7 +1838,7 @@ vals被看作是[]int的切片，但是实际上并不是切片，和以切片�
 
 ## 5. defer延迟调用机制
 
-对于函数或方法前加了difer关键字的，当执行到该条语句时，**函数和参数表达式得到计算**，但**直到包含该defer语句的函数执行完毕时，defer后的函数才会被执行**，不论包含defer语句的函数是通过return正常结束，还是由于panic导致的异常结束。你可以在一个函数中执行多条defer语句，它们的**执行顺序与声明顺序相反**。注意**在defer之后执行完毕**才会执行difer语句
+对于函数或方法前加了difer关键字的，当执行到该条语句时，**`函数`和`参数表达式`得到计算**，但**直到包含该defer语句的函数执行完毕时，defer后的函数才会被执行**，不论包含defer语句的函数是通过return正常结束，还是由于panic导致的异常结束。你可以在一个函数中执行多条defer语句，它们的**执行顺序与声明顺序相反**。注意**在defer之后执行完毕**才会执行difer语句
 
 ```go
 //处理文件读写
@@ -1869,7 +1912,7 @@ func trace(msg string) func() {
 }
 ```
 
-defer在return之后执行，但是可以修改return返回给调用者的值
+`defer`在**return之后**执行，但是可以修改return返回给调用者的值
 
 
 
@@ -2193,6 +2236,39 @@ func main(){
 
 但是同一个结构体不能定义同名的方法（go语言没有重载机制）
 
+```c
+type a struct {}
+type A struct {}
+type B struct {
+	A
+	a
+}
+
+func (*A) gogo() {
+	fmt.Println("gogogo")
+	return
+}
+
+func (*a) gogo() {
+	fmt.Println("gagaga")
+	return
+}
+
+//func (*B) gogo() {
+//	fmt.Println("gigigi")
+//	return
+//}
+
+func main() {
+	r := A{}
+	b := B{}
+	r.gogo()
+	(&r).gogo()
+	b.gogo()   //出错
+	return
+}
+```
+
 
 
 ## 4. 方法操作的是副本
@@ -2201,7 +2277,7 @@ func main(){
 
 所以就是值传递的
 
-**要修改对象的属性，方法的接收者应该是指针** （只需要接收者是指针即可，不需要调用者是指针，就算调用者是对象，也会进行隐式转换，转换为指针）
+**要修改对象的属性，方法的接收者应该是指针** （**只需要接收者是指针即可，不需要调用者是指针**，就算调用者是对象，也会进行隐式转换，转换为指针）
 
 ```go
 func main() {
@@ -2479,7 +2555,7 @@ func (db database) price(w http.ResponseWriter, req *http.Request) {
 ServeHTTP方法的行为是**调用了它的函数本身**。因此HandlerFunc是一个**让函数值满足一个接口的适配器**，这里函数和这个接口仅有的方法有相同的函数签名。实际上，这个技巧让一个单一的类型例如database以多种方式满足http.Handler接口：一种通过它的list方法，一种通过它的price方法等等
 
 ```go
-package http
+package  
 
 type HandlerFunc func(w ResponseWriter, r *Request)
 
@@ -2706,7 +2782,7 @@ x = <- ch //从channel接收，<-写在channel之前
 - **空结构体**`struct{}`类型的`channel`，它不能被写入任何数据，只有通过`close()`函数进行关闭操作，才能进行输出操作。`struct`{}类型的`channel`**不占用任何内存**，用来做同步用
 
 ```go
-	ch := make(chan struct{})
+	ch := make(chan struct{}) 
 	times := make([]struct{}, 10)
 	for range times {
 		go func() {
@@ -2907,7 +2983,7 @@ func main() {
 
 
 
-**在for循环里，即使通道被关闭了，依然有机会被select**，通道读取的结果是通道的零值和false：
+**在for循环里，即使通道被关闭了，依然有机会被select**，通道读取的结果是通道的`零值`和`false`：
 
 ```go
 const (
@@ -3219,7 +3295,7 @@ func main() {
 }
 ```
 
-并发的事件是无法确定发生顺序的。为了最大化并行，go编译器和处理器会在对语句/指令进行重排序，前提是保证 as-if-serial，保证 happens before 原则
+并发的事件是无法确定发生顺序的。为了最大化并行，go编译器和处理器会在对语句/指令进行重排序，前提是保证 as-if-serial，保证 `happens before` 原则
 
 
 
