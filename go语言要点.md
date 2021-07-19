@@ -3535,7 +3535,7 @@ Map、Slice、Chan 属于引用类型，使用起来类似于指针，但是在�
 	fmt.Println(typeOfm.String())     //main.mmmm
 
 type Enum int
-Zero Enum = 0
+var Zero Enum = 0
     
 	typeOfA := reflect.TypeOf(Zero)
   fmt.Println(typeOfA.Name(), typeOfA.Kind())  // Enum int
@@ -3889,7 +3889,7 @@ func toType(t *rtype) Type {
 }
 ```
 
-
+[Go语言interface实现原理详解 - jimshi - 博客园 (cnblogs.com)](https://www.cnblogs.com/shijingxiang/articles/12201984.html)
 
 ## 4. 通过类型信息创建实例
 
