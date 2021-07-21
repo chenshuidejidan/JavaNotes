@@ -587,7 +587,7 @@ fmt.Println(c == Celsius(f)) // "true"!
 
 ### 3.7 包、文件、init函数
 
-对于在包级别声明的变量，如果有初始化表达式则用表达式初始化，还有一些没有初始化表达式的，例如某些表格数据初始化并不是一个简单的赋值过程。在这种情况下，我们可以用一个特殊的init初始化函数来简化初始化工作。每个文件都可以包含多个init初始化函数
+对于在包级别声明的变量，如果有初始化表达式则用表达式初始化，还有一些没有初始化表达式的，例如某些表格数据初始化并不是一个简单的赋值过程。在这种情况下，我们可以用一个特殊的init初始化函数来简化初始化工作。**每个文件都可以包含多个init初始化函数**
 
 ```go
 func init() { /* ... */ }
@@ -639,6 +639,57 @@ if x := f(); x == 0 {    //可以执行一个语句之后再进行判断
     fmt.Println(x, y)
 }
 fmt.Println(x, y) // compile error: x and y are not visible here
+```
+
+
+
+## 4. 大端和小端
+
+使用go语言判断CPU是大端还是小端：
+
+```go
+func main() {
+	var i int32 = 0x01020304
+	u := unsafe.Pointer(&i)
+	pb := (*int8)(u)
+	fmt.Println(*pb)
+}
+
+/*
+	  低地址 ------------> 高地址
+小端：	0x04 | 0x03 | 0x02 | 0x01
+大端：	0x01 | 0x02 | 0x03 | 0x04
+*/
+
+```
+
+大端序，就是高位字节放在低地址，符合人类的阅读习惯
+
+小端序，就是低位字节放在低地址，符合计算机读取内存的方式，从低到高读取
+
+
+
+大小端模式各有优势：
+
+- 小端模式强制转换类型时不需要调整字节内容，直接截取低字节即可
+
+- 大端模式由于符号位为第一个字节，很方便判断正负。
+
+
+
+java要判断大端还是小端就麻烦很多：
+
+```java
+public static void main(String[] args) throws NoSuchFieldException, IllegalAccessException {
+    Field field = Unsafe.class.getDeclaredField("theUnsafe"); //Unsafe构造方法私有，自身有个静态的属性是自己的实例
+    field.setAccessible(true);
+    Unsafe unsafe = (Unsafe) field.get(null); //field.get方法，获取类或者实例的field值，实例要传入实例，类的传什么都可以
+    long a = unsafe.allocateMemory(8);
+    unsafe.putInt(a, 0x01020304);
+    byte b = unsafe.getByte(a);
+    System.out.println(b);
+    unsafe.freeMemory(a);
+}
 ```
 
 
@@ -720,7 +771,7 @@ true和false
 
 ## 5. 字符串
 
-**字符串类型自身存储了长度，所以不需要\0作为结束标志**
+**字符串类型自身存储了长度，所以不需要`\0`作为结束标志**
 
 字符串底层结构在`reflect.StringHeader`中定义
 
@@ -782,7 +833,7 @@ Utf-8编码是前缀编码，没有任何字符的编码是其它字符编码的
 
 `for range`不支持非utf8编码的字符串的遍历，非utf8编码的字符串可以看做是**只读的二进制数组**
 
-字符串中实际存储的是utf8编码，使用for range可以获得rune码点
+**字符串中实际存储的是utf8编码**，使用for range可以获得rune码点
 
 
 
@@ -925,13 +976,13 @@ y := fmt.Sprintf("%d", x)
 fmt.Println(y, strconv.Itoa(x)) // 123 123
 ```
 
-`FormatInt`和FormatUint函数可以用不同的进制来格式化数字：
+`FormatInt`和`FormatUint`函数可以用不同的进制来格式化数字：
 
 ```go
 fmt.Println(strconv.FormatInt(int64(x), 2)) // "1111011"
 ```
 
-如果要将一个字符串解析为整数，可以使用strconv包的Atoi或`ParseInt`函数，还有用于解析无符号整数的ParseUint函数：
+如果要将一个字符串解析为整数，可以使用strconv包的`Atoi`或`ParseInt`函数，还有用于解析无符号整数的ParseUint函数：
 
 ```go
 x, err := strconv.Atoi("123")             // x is an int
