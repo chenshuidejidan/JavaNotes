@@ -149,10 +149,330 @@ p := new(int) 也就相当于 var t int,  p := &t
 
 
 
-### 3.4 变量的生命周期
+### 3.4 变量的生命周期和逃逸分析
 
 - 包级别声明的变量的生命周期和整个程序的生命周期一致
 - 局部变量有动态的生命周期：从创建该局部变量起，到该变量不再有引用为止。。因此局部变量可能超出其局部作用域，在函数返回之后依然存在。。**对于逃逸的局部变量，必须分配在堆上**，对于没有逃逸的局部变量，编译器可以选择分配在栈上。（也可以分配在堆上由gc进行回收）
+
+发生逃逸的情况主要有两种：
+
+1. 方法逃逸：当一个对象在方法中定义之后，作为参数传递或返回值到其他方法中
+2. 线程逃逸：可能被其他线程访问到的变量
+
+这里主要针对**方法逃逸**进行分析，通过逃逸分析判断一个变量到底是分配在栈上还是堆上
+
+**策略**：编译器如果不能证明某个变量在函数返回后不再被引用，则分配在堆上。如果一个变量过大，也可能被分配在堆上
+
+**目的：** 尽量在栈上分配，减少GC压力。栈上分配更高效。未逃逸对象可以进行锁消除
+
+
+
+工具：`go run -gcflags "-m -l"`
+
+说明：
+
+moved to heap:xxx 和 xxx escapes to heap 都表示逃逸，前者表示值类型逃逸，后者表示指针类型逃逸
+
+
+
+
+
+#### 1. 函数返回局部变量地址引起逃逸
+
+函数**返回了局部变量的指针**，这种情况该变量一定发生了逃逸
+
+```go
+func f() (int, *int) {
+	var a = 2
+	var c = 2
+	//返回函数局部变量地址
+	return a, &c
+}
+
+func main() {
+	f()
+}
+
+/*
+$ go run -gcflags "-m -l" addr_escape.go
+# command-line-arguments
+.\addr_escape.go:5:6: moved to heap: c
+*/
+```
+
+可以看到 c 逃逸了，而 a 没有逃逸
+
+
+
+#### 2. 被已逃逸的指针引用的指针会逃逸
+
+某个值**取地址传递给函数**并不会发生逃逸
+
+```go
+func f() (int, *int) {
+	var a = 2
+	var c = 2
+	//返回函数局部变量地址
+	return a, &c
+}
+
+func add(a *int, b *int) int {
+	return *a + *b
+}
+func main() {
+	x, y := f()
+	add(&x, y)
+}
+/*
+$ go run -gcflags "-m -l" addr_escape.go
+# command-line-arguments
+.\addr_escape.go:5:6: moved to heap: c
+.\addr_escape.go:10:10: a does not escape
+.\addr_escape.go:10:18: b does not escape
+*/
+```
+
+可以看到 add 函数 传了 x 的地址，不会引起x逃逸
+
+
+
+而**被已经逃逸的变量引用的指针一定会发生逃逸**
+
+```go
+func f() (int, *int) {
+	var a = 2
+	var c = 2
+	//返回函数局部变量地址
+	return a, &c
+}
+
+func main() {
+	x, y := f()
+	fmt.Printf("addr_x: %p\naddr_y: %p\n", &x, y)
+}
+
+/*
+$ go run -gcflags "-m -l" addr_escape.go
+# command-line-arguments
+.\addr_escape.go:7:6: moved to heap: c
+.\addr_escape.go:13:2: moved to heap: x
+.\addr_escape.go:14:12: ... argument does not escape
+addr_x: 0xc000012120
+addr_y: 0xc000012128
+*/
+```
+
+```go
+type T struct {
+	TA *int
+	TB int
+}
+
+func f() (int, int) {
+	var a = 2
+	var c = 2
+	//返回函数局部变量地址
+	return a, c
+}
+
+func newT(ta *int, tb int) *T {
+	t := T{TA: ta, TB: tb}
+	return &t
+}
+
+func main() {
+	x, y := f()
+	t := newT(&x, y)
+	_ = t
+}
+
+/*
+$ go run -gcflags "-m -l" addr_escape.go
+# command-line-arguments
+.\addr_escape.go:15:11: leaking param: ta
+.\addr_escape.go:16:2: moved to heap: t
+.\addr_escape.go:21:2: moved to heap: x
+*/
+```
+
+这里t逃逸了！！ t又引用了x的地址，所以引起 x 逃逸，这才是逃逸的根本原因。。
+
+至于Printf：
+
+fmt.Printf 源码，p这个指针是通过newPrinter返回的，p是逃逸的，而p引用了 arg，arg是指针的时候就会造成arg逃逸
+
+```go
+func Fprintf(w io.Writer, format string, a ...interface{}) (n int, err error) {
+	p := newPrinter()		// p 逃逸了
+	p.doPrintf(format, a)
+...
+}
+
+func (p *pp) doPrintf(format string, a []interface{}) {
+...
+p.printArg(a[argNum], rune(c))
+...
+}
+
+func (p *pp) printArg(arg interface{}, verb rune) {  
+	p.arg = arg					// 逃逸的变量p，引用了arg，arg是指针的时候，也就是 x ，逃逸了，不是指针不逃逸
+	p.value = reflect.Value{}
+...
+}
+```
+
+
+
+#### 3. map、slice、chan引用的指针逃逸
+
+**被指针类型的slice、map和chan引用的指针一定发生逃逸**
+
+> 备注：stack overflow上有人提问为什么使用指针的chan比使用值的chan慢30%，答案就在这里：使用指针的chan发生逃逸，gc拖慢了速度。问题链接https://stackoverflow.com/questions/41178729/why-passing-pointers-to-channel-is-slower
+
+```go
+func main() {
+	a := make([]*int, 1)
+	b := 12
+	a[0] = &b
+
+	c := make(map[string]*int)
+	d := 14
+	c["aaa"] = &d
+
+	e := make(chan *int, 1)
+	f := 15
+	e <- &f
+}
+
+/*
+$ go run -gcflags "-m -l" slice_map_chan_escape.go
+# command-line-arguments
+.\slice_map_chan_escape.go:5:2: moved to heap: b
+.\slice_map_chan_escape.go:9:2: moved to heap: d
+.\slice_map_chan_escape.go:13:2: moved to heap: f
+.\slice_map_chan_escape.go:4:11: make([]*int, 1) does not escape
+.\slice_map_chan_escape.go:8:11: make(map[string]*int) does not escape
+*/
+```
+
+
+
+我们得出了指针**必然发生逃逸**的三种情况（go version go1.13.4 darwin/amd64)：
+
+- 在某个函数中new或字面量创建出的变量，将其指针作为函数返回值，则该变量一定发生逃逸（构造函数返回的指针变量一定逃逸）；
+- 被已经逃逸的变量引用的指针，一定发生逃逸；
+- 被指针类型的slice、map和chan引用的指针，一定发生逃逸；
+
+
+
+同时我们也得出一些**必然不会逃逸**的情况：
+
+- 指针被未发生逃逸的变量引用；
+- 仅仅在函数内对变量做取址操作，而未将指针传出；
+
+
+
+有一些情况**可能发生逃逸，也可能不会发生逃逸**：
+
+- 将指针作为入参传给别的函数；这里还是要看指针在被传入的函数中的处理过程，如果发生了上边的三种情况，则会逃逸；否则不会逃逸；
+
+
+
+#### 4. 栈空间不足逃逸
+
+创建较小的slice，没有逃逸：
+
+```go
+func main() {
+	stack()
+}
+
+func stack() {
+	s := make([]int, 10, 10)
+	s[0] = 1
+}
+
+/*
+$ go run -gcflags "-m -l" stack_escape.go
+# command-line-arguments
+.\stack_escape.go:8:11: make([]int, 10, 10) does not escape
+*/
+```
+
+
+
+创建超大slice，逃逸：
+
+```go
+func main() {
+	stack()
+}
+
+func stack() {
+	s := make([]int, 10000, 10000)
+	s[0] = 1
+}
+
+/*
+$ go run -gcflags "-m -l" stack_escape.go
+# command-line-arguments
+.\stack_escape.go:8:11: make([]int, 10000, 10000) escapes to heap
+*/
+```
+
+
+
+#### 5. 动态类型逃逸
+
+```go
+func main() {
+	dynamic()
+}
+
+func dynamic() interface{} {
+	i := 0
+	return i
+}
+
+/*
+$ go run -gcflags "-m -l" interface_escape.go
+# command-line-arguments
+.\interface_escape.go:9:2: i escapes to heap
+*/
+```
+
+
+
+#### 6. 闭包引用逃逸
+
+```go
+func main() {
+	f := fibonacci()
+	for i := 0; i < 10; i++ {
+		f()
+	}
+}
+func fibonacci() func() int {
+	a, b := 0, 1
+	return func() int {
+		a, b = b, a+b
+		return a
+	}
+}
+
+/*
+$ go run -gcflags "-m" closure_escape.go
+# command-line-arguments
+.\closure_escape.go:11:9: can inline fibonacci.func1
+.\closure_escape.go:10:2: moved to heap: a
+.\closure_escape.go:10:5: moved to heap: b
+.\closure_escape.go:11:9: func literal escapes to heap
+*/
+```
+
+
+
+
 
 ### 3.5 赋值
 
@@ -319,6 +639,8 @@ if x := f(); x == 0 {    //可以执行一个语句之后再进行判断
 }
 fmt.Println(x, y) // compile error: x and y are not visible here
 ```
+
+
 
 # 二、基本数据类型
 
@@ -3220,6 +3542,37 @@ func main() {
 ```
 
 并发的事件是无法确定发生顺序的。为了最大化并行，go编译器和处理器会在对语句/指令进行重排序，前提是保证 as-if-serial，保证 happens before 原则
+
+
+
+## 6. happens-before
+
+[Golang 并发编程核心—内存可见性](https://juejin.cn/post/6911126210340716558)
+
+happens-before 是比 **指令重排、内存屏障**这些概念更上层的东西，是语言层面给我们的承诺。我们没有办法穷举在所有计算机架构下重排序会如何发生，也没办法为重排序定义该在什么时候插入屏障来阻止重排序、刷新 cache 的顺序，这个是无法做到的事情。
+
+happens-before表示的是**前一个操作的结果对于后续操作是可见的**，它表达了**多个线程之间对于内存的可见性**，本质上是一种偏序关系，所以满足传递性
+
+> 为什么要有happens-before原则：
+>
+> 如果Java、Go语言提供内存屏障操作，让开发者自己决定何时插入屏障，那么并发代码的开发将很难写，易出错(C就是)
+>
+> 对于编译器和CPU来说，这些内存屏障，优化屏障都是约束，让底层无法随心所欲进行优化，这些约束肯定越少越好
+
+happens-before像是几条公理，只有我们开发的时候遵守这些规则，才能保证正确的语义，满足正确的可见性
+
+Channel涉及到的happens-before规则有4跳，最多，Golang里面channel才是保证内存可见性、有序性、代码同步的第一选择：
+
+1. `import package` 的时候，如果 package p 里面执行 `import q` ，那么逻辑顺序上 package q 的 init 函数执行先于 package p 后面执行任何其他代码。
+2. `goroutine创建`：goroutine的创建函数本身 happens before 于 goroutine 内的第一行代码执行
+3. `goroutine销毁`：goroutine 的 exit 事件并不保证先于所有的程序内的其他事件，或者说某个 goroutine exit 的结果并不保证对其他goroutine可见
+4. `channel写入`：像channel写入 happens before 于对应元素的读取操作
+5. `channel关闭`：channel的关闭 happens before 于channel的接收(<-chan)的返回，也就是说channel一定可以接收到关闭前写入的信息
+6. `无缓冲channel`：无缓冲channel的接收操作 happens before 发送操作
+7. `有缓冲channel`：缓冲长度为C的channel，第K个元素的接收先于第K+C个元素的发送
+8. `锁`：针对任意 `sync.Mutex` 和 `sync.RWMutex` 的锁变量 L，第 n 次调用 `L.Unlock()` 逻辑先于（结果可见于）第 m 次调用 `L.Lock()` 操作 （n<m）。也就是下次加锁必须等待上次的锁释放
+9. `读写锁`：针对 `sync.RWMutex` 类型的锁变量 L， `L.Unlock( )` 可见于 `L.Rlock( )` ，第 n 次的 `L.Rlock( )` 先于 第 n+1 次的 `L.Lock()`
+10. `once`：`f( )` 函数执行先于 `once.Do(f)` 的返回。换句话说，`f( )` 必定先执行完，`once.Do(f)` 函数调用才能返回
 
 
 
