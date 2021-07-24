@@ -171,7 +171,7 @@ _, err = io.Copy(dst, src) // 丢弃字节数
 _, ok = x.(T)              // 只检测类型，忽略具体值
 ```
 
-**可赋值性：**类型必须**完全匹配**才能进行赋值，nil可以赋值给任何指针或引用类型的变量
+**可赋值性：**类型必须`完全匹配`才能进行赋值，nil可以赋值给任何指针或引用类型的变量
 
 对于两个值是否可以用`==`或`!=`进行相等比较的能力也和可赋值能力有关系：对于任何类型的值的相等比较，第二个值必须是对第一个值类型对应的变量是可赋值的，反之亦然
 
@@ -334,6 +334,22 @@ Unicode字符`rune`类型和`int32`类型**等价** `type rune = int32`
 
 `byte`类型和`uint8`类型**等价 ** `type byte = int8`
 
+> **类型别名**：
+>
+> ```go
+> type a int           //a和int是不同类型
+> type b = int         //b和int是完全相同的类型
+> 
+> func main() {
+> 	var x a
+> 	var y b
+> 	x = int(10)     //编译出错
+> 	y = int(10)     //正确
+> }
+> ```
+>
+> 
+
 uintptr：没有指定具体的bit大小，但是足以容纳指针
 
 
@@ -391,13 +407,41 @@ fmt.Println(imag(x*y))           // "10"
 
 ## 4. 布尔类型
 
-true和false
+`true = 0 == 0`  和 `false = 0!= 0`
 
 &&的优先级比｜｜高
 
 **布尔类型不会隐式转换为0，1**，如有需要应该手动进行转换
 
 ## 5. 字符串
+
+Go 语言中的字符串只是一个**只读**的字节数组，下图展示了 `"hello"` 字符串在内存中的存储方式：
+
+![](picture/go语言要点/2019-12-31-15777265631608-in-memory-string.png)
+
+如果是代码中存在的字符串，编译器会将其标记成只读数据 `SRODATA`，假设我们有以下代码，其中包含了一个字符串，当我们将这段代码编译成汇编语言时，就能够看到 `hello` 字符串有一个 `SRODATA` 的标记：
+
+```bash
+$ cat main.go
+package main
+
+func main() {
+	str := "hello"
+	println([]byte(str))
+}
+
+$ GOOS=linux GOARCH=amd64 go tool compile -S main.go
+...
+go.string."hello" SRODATA dupok size=5
+	0x0000 68 65 6c 6c 6f                                   hello
+...
+```
+
+**只读**只意味着字符串会分配到只读的内存空间
+
+
+
+### 5.1 数据结构
 
 **字符串类型自身存储了长度，所以不需要\0作为结束标志**
 
@@ -737,6 +781,8 @@ func main() {
 }
 ```
 
+`[...]T{1, 2, 3}` 和 `[3]T{1, 2, 3}` 在运行时是完全等价的，`[...]T` 这种初始化方式也只是 Go 语言为我们提供的一种语法糖，当我们不想计算数组中的元素个数时可以通过这种方法减少一些工作量
+
 数组传的是**值**
 
 ```go
@@ -831,7 +877,7 @@ Slice[i:j] 长度：j-i.  容量：k-i
 
 ### 空slice和nil slice
 
-- 为nil的Slice没有底层数组（数组指针是nil），len和cap都是0，可以进行比较。但是非nil的Slice也可以len和cap为0，与普通Slice一样
+- 为nil的Slice没有底层数组（数组指针是nil），len和cap都是0，可以进行比较。但是非nil的Slice也可以len和cap为0，与普通Slice一样，`Data相同`
 
 ```go
 var s []int    // len(s) == 0, s == nil
@@ -839,6 +885,38 @@ s = nil        // len(s) == 0, s == nil
 s = []int(nil) // len(s) == 0, s == nil
 s = []int{}    // len(s) == 0, s != nil
 s = make([]int, 0) // len(s) == 0, s != nil
+
+
+func main() {
+	var a []int
+	var b []int
+	c := make([]int, 0)
+	d := make([]int, 0)
+	d1 := make([]int, 0)
+	d2 := make([]int, 0)
+	d3 := make([]int, 0)
+	d4 := make([]int, 0)
+	d5 := make([]int, 0)
+	fmt.Println(*(*reflect.SliceHeader)(unsafe.Pointer(&a)))
+	fmt.Println(*(*reflect.SliceHeader)(unsafe.Pointer(&b)))
+	fmt.Println(*(*reflect.SliceHeader)(unsafe.Pointer(&c)))
+	fmt.Println(*(*reflect.SliceHeader)(unsafe.Pointer(&d)))
+	fmt.Println(*(*reflect.SliceHeader)(unsafe.Pointer(&d1)))
+	fmt.Println(*(*reflect.SliceHeader)(unsafe.Pointer(&d2)))
+	fmt.Println(*(*reflect.SliceHeader)(unsafe.Pointer(&d3)))
+	fmt.Println(*(*reflect.SliceHeader)(unsafe.Pointer(&d4)))
+	fmt.Println(*(*reflect.SliceHeader)(unsafe.Pointer(&d5)))
+}
+
+{0 0 0}
+{0 0 0}
+{824634367496 0 0}
+{824634367496 0 0}
+{824634367496 0 0}
+{824634367496 0 0}
+{824634367496 0 0}
+{824634367496 0 0}
+{824634367496 0 0}
 ```
 
 除了和nil相等比较外，**一个nil值的slice的行为和其它任意0长度的slice一样**；例如reverse(nil)也是安全的。除了文档已经明确说明的地方，所有的`Go语言函数应该以相同的方式对待nil值的slice和0长度的slice`
@@ -1838,7 +1916,7 @@ vals被看作是[]int的切片，但是实际上并不是切片，和以切片�
 
 ## 5. defer延迟调用机制
 
-对于函数或方法前加了difer关键字的，当执行到该条语句时，**`函数`和`参数表达式`得到计算**，但**直到包含该defer语句的函数执行完毕时，defer后的函数才会被执行**，不论包含defer语句的函数是通过return正常结束，还是由于panic导致的异常结束。你可以在一个函数中执行多条defer语句，它们的**执行顺序与声明顺序相反**。注意**在defer之后执行完毕**才会执行difer语句
+对于函数或方法前加了difer关键字的，当执行到该条语句时，`函数`和`参数表达式`得到计算，但**直到包含该defer语句的函数执行完毕时，defer后的函数才会被执行**，不论包含defer语句的函数是通过return正常结束，还是由于panic导致的异常结束。你可以在一个函数中执行多条defer语句，它们的**执行顺序与声明顺序相反**。注意**在defer之后执行完毕**才会执行difer语句
 
 ```go
 //处理文件读写
@@ -2760,7 +2838,7 @@ ch <- x   //发送到channel，<-写在channel之后
 x = <- ch //从channel接收，<-写在channel之前
 ```
 
-**关闭channel：** 使用`close(ch)`可以关闭channel，随后基于该channel的任何发送操作都会导致panic异常，**但是接收操作依然可以进行**
+**关闭channel（`写`）：** 使用`close(ch)`可以关闭channel，随后基于该channel的任何发送操作都会导致panic异常，**但是接收操作依然可以进行**
 
 
 
@@ -3891,6 +3969,8 @@ func toType(t *rtype) Type {
 
 [Go语言interface实现原理详解 - jimshi - 博客园 (cnblogs.com)](https://www.cnblogs.com/shijingxiang/articles/12201984.html)
 
+[Golang反射机制的实现分析——reflect.Type类型名称_方亮的专栏-CSDN博客](https://blog.csdn.net/breaksoftware/article/details/85995767)
+
 ## 4. 通过类型信息创建实例
 
 当已知 reflect.Type 时，可以动态地创建这个类型的实例，实例的类型为指针。例如 reflect.Type 的类型为 int 时，创建 int 的指针，即`*int`
@@ -4235,7 +4315,7 @@ func main() {
 
 ## 1. TCMalloc介绍
 
-Golang的内存分配算法绝大部分都是来自 TCMalloc，Golang只针对其中改动了一小部分。可以说TCMalloc就是Golang内存分配的框架。
+Golang的内存分配算法绝大部分都是来自 [TCMalloc](https://www.jianshu.com/p/11082b443ddf)，Golang只针对其中改动了一小部分。可以说TCMalloc就是Golang内存分配的框架。
 
 Thread-Caching Malloc。是谷歌开发的内存分配器。具有现代化内存分配的基本特征：**对抗内存碎片、在多核处理器能够scale**
 
@@ -4434,7 +4514,7 @@ TCMalloc的定义：
 
 ## 2. Golang内存管理
 
-宏观来看，Go的内存管理就是下图的样子，重点在于堆内存的部分
+宏观来看，[Go的内存管理](https://draveness.me/golang/docs/part3-runtime/ch07-memory/golang-memory-allocator/)就是下图的样子，重点在于堆内存的部分
 
 ![Go内存管理](picture/go语言要点/Go内存管理.png)
 
@@ -4485,7 +4565,7 @@ Golang的内存分配法和隔离适应算法类似，并且借鉴了TCMalloc的
 
 对象被分为三种大小：
 
-- 小于16KB：微对象
+- 小于16B：微对象
 - 16KB到32KB：小对象
 - 大于32KB：大对象
 
@@ -4599,7 +4679,7 @@ Go 语言运行时将**小于 16 byte**的对象划分为微对象，它会使�
 
 ![微对象的分配](picture/go语言要点/微对象的分配.png)
 
-如上图中,微对象分配器中已经被分配了12B的内存,现在**仅剩下4B空闲**, 如果此时有小于等于4B的对象需要被分配内存,那么这个对象会直接使用tinyoffset之后剩余的空间。如果大于4B，就要被算在小对象分配的过程中了
+如上图中,微对象分配器中已经被分配了12B的内存,现在**仅剩下4B空闲**, 如果此时有小于等于4B的对象需要被分配内存,那么这个对象会直接使用tinyoffset之后剩余的空间。如果`大于4B`，就要被算在小对象分配的过程中了
 
 
 
@@ -5083,7 +5163,7 @@ P的加入，还带来了一个**本地协程队列**，跟前面的**全局队�
 
 1. **全局队列**：存放等待运行的 G。
 2. **P 的本地队列**：同全局队列类似，存放的也是等待运行的 G，存的数量有限，` 不超过 256 个`。新建 G’时，G’优先加入到 P 的本地队列，如果本地队列满了，则会`把G'加入到全局队列(Go1.13)`。
-3. **P 列表**：**所有的 P 都在程序启动时创建，并保存在数组中，最多有 GOMAXPROCS(可配置) 个**。
+3. **P 列表**：**所有的 P 都在程序启动时创建，并保存在数组中，最多有 GOMAXPROCS(可配置) 个**。 `allp []*p`
 4. **M**：线程想运行任务就得获取 P，从 P 的本地队列获取 G，P 队列为空时，M 也会尝试从全局队列拿一批 G 放到 P 的本地队列，或从其他 P 的本地队列偷一半放到自己 P 的本地队列。M 运行 G，G 执行之后，M 会从 P 获取下一个 G，不断重复下去
 
 ![GMP](picture/go语言要点/GMP的本地队列.gif)
@@ -5122,7 +5202,7 @@ go语言的限制：go程序启动的时候，会设置M的最大值为10000，�
 
 runtime/debug中的 `SetMaxThreads` 函数，设置M的最大数量
 
-**一个M阻塞了，会创建新的M**
+**一个M阻塞了，可能会创建新的M**
 
 
 
@@ -5134,7 +5214,7 @@ runtime/debug中的 `SetMaxThreads` 函数，设置M的最大数量
 
 在确定了P的最大数量n后，runtime会根据这个值直接创建n个P出来
 
-如果没有足够的M来关联P以运行G。比如所有的M阻塞了，P还有就绪任务G，P就会取寻找空闲的M，如果没有空闲的，就会创建新的M
+如果没有足够的M来关联P以运行G。**比如所有的M阻塞了，P还有就绪任务G或者有GC worker等，就会为P寻找空闲的M，如果没有空闲的，就会创建新的M**
 
 
 
@@ -5143,11 +5223,24 @@ runtime/debug中的 `SetMaxThreads` 函数，设置M的最大数量
 **复用线程**： 避免频繁的创建和销毁线程，而是直接对线程的复用
 
 1. `work stealing机制`：当M**没有G可运行时**，会依次按照以下规则来窃取，而不是销毁线程
-   1. 从P的**本地队列**中获取
-   2. 从**全局队列**中获取
-   3. 从网络轮询器(network poller)中获取
-   4. 从**其他M的P的本地队列**中获取（从其他P的本地队列偷走一半的G）
+
+   `runtime.schedule` 函数会从下面几个地方查找待执行的 Goroutine：
+
+   1. 为了保证公平，当全局运行队列中有待执行的 Goroutine 时，通过 `schedtick` 保证有一定几率会从全局的运行队列中查找对应的 Goroutine；
+   2. 从处理器本地的运行队列中查找待执行的 Goroutine；
+   3. 如果前两种方法都没有找到 Goroutine，会通过 `runtime.findrunnable`进行阻塞地查找 Goroutine；
+
+   `runtime.findrunnable`的实现非常复杂，这个 300 多行的函数通过以下的过程获取可运行的 Goroutine：
+
+   1. 从本地运行队列、全局运行队列中查找；
+   2. 从网络轮询器中查找是否有 Goroutine 等待运行；
+   3. 通过 `runtime.runqsteal`尝试从其他随机的处理器中窃取待运行的 Goroutine，该函数还可能窃取处理器的计时器；
+
 2. `hand off机制`：当本线程的**G阻塞时**，会释放绑定的P，将P转移为其他空闲的线程执行
+
+   系统调用封装成`entrysyscall->INVOKE_SYSCALL->exitsyscall`，在进入真正的系统调用 `INVOKE_SYSCALL` 之前，会在`entrysyscall` 里面进行一些准备工作，然后调用`handoffp`，该函数会看P本地队列上或全局队列上是否有可运行的G或者可运行的GC worker等，如果有就调用 `startm(p, false)`，尝试获取空闲的M或者创建新的M，并绑定该P，这样就能实现一个M因为G阻塞时，不至于该P上的所有G都阻塞
+
+   
 
 例如下面的例子，main函数在P1上运行并创建goroutine，当第一批goroutine进入P1的本地队列的时候，P0正在寻找任务。然而它的本地队列，全局队列和网络轮询器都是空的，所以最后就从P1中窃取任务，从这7个goroutine中偷走了4个，其中一个立马在P0执行了，剩余的3个放到P0的本地队列
 
@@ -5176,7 +5269,20 @@ runtime/debug中的 `SetMaxThreads` 函数，设置M的最大数量
 5. 如果M执行某一个Ｇ的时候发生了系统调用或其他阻塞操作，**M会阻塞，runtime会把这个M从P中摘除，然后去取出一个空闲的Ｍ来服务这个P (如果没有空闲M则创建M)**
 6. 当M的系统调用完成后，会**尝试获取一个空闲的P，把G加入到P的本地队列。如果获取不到P，那么这个M就会休眠，加入到M的空闲队列，然后这个G会被放入全局队列中**
 
+当系统调用结束后，会调用退出系统调用的函数 `runtime.exitsyscall`为当前 Goroutine 重新分配资源，该函数有两个不同的执行路径：
 
+1. 调用 `runtime.exitsyscallfast`；
+2. 切换至调度器的 Goroutine 并调用 `runtime.exitsyscall0`；
+
+这两种不同的路径会分别通过不同的方法查找一个用于执行当前 Goroutine 处理器 P，快速路径 `runtime.exitsyscallfast`中包含两个不同的分支：
+
+1. 如果 Goroutine 的原处理器处于 `_Psyscall` 状态，会直接调用 `wirep` 将 Goroutine 与处理器进行关联；
+2. 如果调度器中存在闲置的处理器，会调用 `runtime.acquirep`使用闲置的处理器处理当前 Goroutine；
+
+另一个相对较慢的路径 `runtime.exitsyscall0`会将当前 Goroutine 切换至 `_Grunnable` 状态，并移除线程 M 和当前 Goroutine 的关联：
+
+1. 当我们通过 `runtime.pidleget`获取到闲置的处理器时就会在该处理器上执行 Goroutine；
+2. 在其它情况下，我们会将当前 Goroutine 放到全局的运行队列中，等待调度器的调度；
 
 ### 3.5 调度的生命周期，M0和G0
 
@@ -5184,7 +5290,7 @@ runtime/debug中的 `SetMaxThreads` 函数，设置M的最大数量
 
 **M0**：`M0`是go程序启动后的编号为0的主线程，这个M对应的实例在全局变量 `runtime.m0` 中，不需要在heap上分配，M0负责执行初始化操作和启动第一个G，即`G0`，之后M0就和其他M一样了
 
-**G0**：`G0`是每次启动一个M都会第一个创建的goroutine，G0仅用于负责调度G，不指向任何可执行的 函数，**每个M都会有一个自己的G0**。在调度或者系统调用的时候会使用G0的栈空间，全局变量的G0是属于M0的G0
+**G0**：`G0`是每次启动一个M都会第一个创建的goroutine，`G0仅用于负责调度G`，不指向任何可执行的 函数，**每个M都会有一个自己的G0**。在调度或者系统调用的时候会使用G0的栈空间，全局变量的G0是属于M0的G0
 
 
 
