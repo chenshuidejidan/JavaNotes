@@ -1916,6 +1916,8 @@ vals被看作是[]int的切片，但是实际上并不是切片，和以切片�
 
 ## 5. defer延迟调用机制
 
+> `defer` 传入的函数不是在退出代码块的作用域时执行的，它只会在当前函数和方法返回之前被调用。
+
 对于函数或方法前加了difer关键字的，当执行到该条语句时，`函数`和`参数表达式`得到计算，但**直到包含该defer语句的函数执行完毕时，defer后的函数才会被执行**，不论包含defer语句的函数是通过return正常结束，还是由于panic导致的异常结束。你可以在一个函数中执行多条defer语句，它们的**执行顺序与声明顺序相反**。注意**在defer之后执行完毕**才会执行difer语句
 
 ```go
@@ -2109,6 +2111,63 @@ func Errorf(format string, args ...interface{}) error {
 **error返回的是一般性错误，可以进行处理，继续运行。。。panic一般是让程序不能继续运行的错误**
 
 ## 7. Panic异常
+
+```c
+type g struct {
+	_panic       *_panic // innermost panic - offset known to liblink
+	_defer       *_defer // innermost defer    
+}
+
+type _panic struct {
+	argp      unsafe.Pointer // pointer to arguments of deferred call run during panic; cannot move - known to liblink
+	arg       interface{}    // argument to panic
+	link      *_panic        // link to earlier panic
+	pc        uintptr        // where to return to in runtime if this panic is bypassed
+	sp        unsafe.Pointer // where to return to in runtime if this panic is bypassed
+	recovered bool           // whether this panic is over
+	aborted   bool           // the panic was aborted
+	goexit    bool
+}
+
+type _defer struct {
+	siz     int32 // includes both arguments and results
+	started bool
+	heap    bool
+	// openDefer indicates that this _defer is for a frame with open-coded
+	// defers. We have only one defer record for the entire frame (which may
+	// currently have 0, 1, or more defers active).
+	openDefer bool
+	sp        uintptr  // sp at time of defer
+	pc        uintptr  // pc at time of defer
+	fn        *funcval // can be nil for open-coded defers
+	_panic    *_panic  // panic that is running defer
+	link      *_defer
+
+	// If openDefer is true, the fields below record values about the stack
+	// frame and associated function that has the open-coded defer(s). sp
+	// above will be the sp for the frame, and pc will be address of the
+	// deferreturn call in the function.
+	fd   unsafe.Pointer // funcdata for the function associated with the frame
+	varp uintptr        // value of varp for the stack frame
+	// framepc is the current pc associated with the stack frame. Together,
+	// with sp above (which is the sp associated with the stack frame),
+	// framepc/sp can be used as pc/sp pair to continue a stack trace via
+	// gentraceback().
+	framepc uintptr
+}
+```
+
+
+
+- `panic` 只会触发**当前** Goroutine 的 `defer`；
+- `recover` 只有在 `defer` 中调用才会生效；
+- `panic` 允许在 `defer` 中嵌套多次调用；
+
+
+
+
+
+
 
 - Go的类型系统会在编译时捕获很多错误，但有些错误只能在运行时检查，如`数组访问越界、空指针引用`等。这些运行时错误会引起painc异常
 
@@ -2823,6 +2882,8 @@ goroutine的栈大小可以根据需要动态调整，一个goroutine会以一�
 
 ## 2. Channels-通信
 
+https://draveness.me/golang/docs/part3-runtime/ch06-concurrency/golang-channel/
+
 使用make语句创建无buffer的channel：`ch := make(chan int)`或者`ch := make(chan int, 0)`
 
 还可以指定buffer大小：`ch := make(chan int, 3)`，带buffer的channel
@@ -3013,6 +3074,10 @@ func main() {
 
 
 ### 基于select的多路复用
+
+![](picture/go语言要点/2021-07-24_151458.png)
+
+
 
 select的基本结构：**如果有default则不会阻塞，如过没有default则是阻塞调用，阻塞直到一个通道有事件为止**
 
