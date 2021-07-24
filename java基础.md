@@ -369,7 +369,6 @@ s.intern() 由于new String("1")本来就会在字符串常量池中生成"1"，
 - 外部类可以用public/default   
   成员内部类用public/protected/default/private    
   **局部内部类什么都不能写**（但并不是default）
-  
 
 
 
@@ -979,7 +978,6 @@ ThisEscapeSon
 * 基类的引用不可以访问其子类对象新增加的属性和方法  
 * 可以使用  **引用变量 instanceof 类名** 来判断该引用型变量所指向的对象是否属于该类或该类的子类
 * 子类的对象可以当作基类的对象来使用称作向上转型，反之称为向下转型
-  
 
 ![instanceof](https://pic2.zhimg.com/v2-767f3a58c370f7f505aeb6619d98c98d_b.png)
 
@@ -1144,9 +1142,9 @@ getClass().getName() + '@' + Integer.toHexString(hashCode());
 
 - IDEA可以自动生成toString()的重写代码
 
-### 8.2 eauals() 方法
+### 8.2 equals() 方法
 
-- ==比较的是对象的引用(引用的地址，比较是否指向同一对象)，equals可以比较对象的内容(**需要重写，否则和==等价**)
+- \=\=比较的是对象的引用(引用的地址，比较是否指向同一对象)，equals可以比较对象的内容(**需要重写，否则和\=\=等价**)
 
 ~~~java
     public boolean equals(Object o) {
@@ -1225,15 +1223,15 @@ getClass().getName() + '@' + Integer.toHexString(hashCode());
 - `public Date getTime()`: 返回表示此Calendar时间毫秒数的Date对象
 
 
-    |字段值|含义|
-    |----|----|
-    |YEAR|年|
-    |MONTH|月(从0开始，+1使用)|
-    |DAY_OF_MONTH|几号|
-    |HOUR|12小时制|
-    |HOUR_OF_DAY|24小时制|
-    |MINUTE|分|
-    |SECOND|秒|
+|字段值|含义|
+|----|----|
+|YEAR|年|
+|MONTH|月(从0开始，+1使用)|
+|DAY_OF_MONTH|几号|
+|HOUR|12小时制|
+|HOUR_OF_DAY|24小时制|
+|MINUTE|分|
+|SECOND|秒|
 
 
 ~~~java
@@ -1387,25 +1385,34 @@ java容器可分为两大类：
 ## 1. Collection集合
 - java提供的一种容器，可以存储多个数据，长度可变，存储的都是对象(数组只能存储基本数据类型)
 - Collection继承自Iterable接口，Iterable接口允许对象成为for each循环的目标
-
 - `Collection` 三大接口: List,  Set (两种接口), Queue     
 
-1. `List` ：有序，元素可重复，有索引
+
+
+`List` ：有序，元素可重复，有索引
+
 - `ArrayList`：底层由数组实现，查询快，增删慢
 - `LinkedList`：底层由链表实现，查询慢，增删快
 - `Vector`：   
 
-2. `Set` : 无序，元素不可重复，无索引
+
+
+`Set` : 无序，元素不可重复，无索引
+
 - `TreeSet` : 底层由二叉树实现，一般用于排序
 - `HashSet` : 底层由哈希表和红黑树实现
 - `LinkedHashSet` : 底层由哈希表和链表实现，可以保证存取顺序
 
-3. `Queue` ： 除Collection基本操作外，提供队列操作
+
+
+`Queue` ： 除Collection基本操作外，提供队列操作
+
 - `Deque` : 
 - `PriorityQueue` : 
 
 ### Collection常用功能
 1.1 添加
+
 - `boolean add(Object o)` :  向集合中添加元素
 - `boolean addAll(Collection c)` : 添加一个集合的元素  
 
@@ -1687,8 +1694,6 @@ ArrayList<Object> list2 = list1; //编译错误
     `public void addFirst(E e)`     
     `public void addLast(E e)`      
     `public void push(E e)` ： 将元素压栈到列表所表示的栈
-
-
     `public E getFirst()`       
     `public E getLast()`        
     `public E removeFirst()` : 返回被删掉的头节点值     
@@ -1768,7 +1773,6 @@ public interface Deque<E> extends Queue<E> {
 }
 ~~~
 - 一般直接使用LinkedList
-  
 ~~~java
     Deque<String> deque = new LinkedList<String>();
 ~~~
@@ -1790,12 +1794,21 @@ public class ArrayDeque<E> extends AbstractCollection<E>
 
 ### 5.7 PriorityQueue优先级队列
 - AbstractQueue的实现类，元素自然排序或通过构造函数时期提供的Comparator排序，不允许null元素
-
 - 优先级队列底层通过堆实现 **(完全二叉树实现的小顶堆)**
-
 - 队列的头是指定顺序的最后一个元素 poll, remove, peek, element访问的都是队列头部
-
 - 队列使用场景： Top K 问题、维护数据流中的中位数  
+
+默认是小顶堆，可以传入Comparator变成大顶堆：
+
+```java
+		PriorityQueue<Integer> q = new PriorityQueue<>((o1, o2)->o2-o1);
+        q.offer(1);
+        q.offer(5);
+        q.offer(3);
+        System.out.println(q.poll());  // 5
+```
+
+
 
 
 ## 6. Set
@@ -1829,7 +1842,7 @@ public class ArrayDeque<E> extends AbstractCollection<E>
 - `HashSet` 是 `HashMap` 的一个实例(实际上就是HashMap)，**不保证集合的迭代顺序**，实现了`Set接口`
 - 这个实现不是线程安全的，多线程应该使用`Collections.synchronizedSet()`方法重写
 - **集合元素可以是null,但只能放入一个null**
-- HashSet集合判断两个元素相等的标准是两个对象通过`equals方法`比较相等，并且两个对象的hashCode()方法返回值相等,**所以在重写了equals方法之后也应该重写hashCode方法，equals返回true时，hashCode也应该相同**
+- HashSet集合判断两个元素相等的标准是两个对象的hashCode()方法返回值相等，并且两个对象通过`equals方法`比较相等或者`==`相等,**所以在重写了equals方法之后也应该重写hashCode方法，equals返回true时，hashCode也应该相同**
 - `HashSet` 底层实际上是一个 `HashMap` 实例，`value` 是一个 `Object` ，所有 `key` 的 `value` 都是它     
 ~~~java
 private static final Object PRESENT = new Object();  //value...
@@ -1841,7 +1854,7 @@ private static final Object PRESENT = new Object();  //value...
 - 是`SortedSet`接口的唯一实现类，确保集合元素处于排序状态
 - 为基本操作`add`、`remove`、`contains`提供了**logn**的时间复杂度
 - 这个实现不是线程安全的。多线程使用`SortedSet s = Collections.synchronizedSortedSet(new TreeSet(...));`
-- `TreeMap` 底层实际上是一个 `TreeMap` 实例， `value` 也是 `Object` 
+- `TreeSet` 底层实际上是一个 `TreeMap` 实例， `value` 也是 `Object` 
 
 ### 6.3 LinkedHashSet
 
@@ -2014,7 +2027,7 @@ static final int hash(Object key) {
 ![0EISRP.jpg](https://s1.ax1x.com/2020/09/28/0EISRP.jpg)
 
 #### 7.2.2 初始化容量
-- 散列数组需要一个 $2^n-1$ 的长度，才能在减1的时候出现 $0111$ 这样的值，**方便取模（因为 % 和 / 比 & 慢了10倍左右）**
+- 散列数组需要一个 $2^n-1$ 的长度，才能在减1的时候出现 $011111111$ 这样的值，**方便取模（因为 % 和 / 比 & 慢了10倍左右）**
 - 首先计算阈值，就是要寻找比初始值大的，最接近的2的幂
 ~~~java
 static final int tableSizeFor(int cap) {
@@ -2042,7 +2055,7 @@ static final float DEFAULT_LOAD_FACTOR = 0.75f;
 ~~~java
     void addEntry(int hash, K key, V value, int bucketIndex) {
         if ((size >= threshold) && (null != table[bucketIndex])) {
-            //当size大于等于某一个阈值thresholdde时候且该桶并不是一个空桶；
+            //当size大于等于某一个阈值threshold的时候且该桶并不是一个空桶；
             //因为size 已经大于等于阈值了，说明Entry数量较多，哈希冲突严重
             //若该Entry对应的桶不是一个空桶，这个Entry的加入必然会把原来的链表拉得更长，因此需要扩容
             //若对应的桶是一个空桶，那么此时还没有必要扩容。
@@ -2067,7 +2080,7 @@ static final float DEFAULT_LOAD_FACTOR = 0.75f;
 7. 最后判断是否超过阈值`threshold`，超过则扩容
 8. `treeifyBin`,是一个链表转树的方法，**但不是所有的链表长度为8后都会转成树**，还需要判断桶长度是否大于64 `MIN_TREEIFY_CAPACITY`。如果小于则扩容，扩容后链表上的数据会被拆分散列的相应的桶节点上，也就把链表长度缩短了
 
-- 关于插入，**在java8之前是头插法**，信赖的值取代原有的值，原有的值直接被顺推到链表中去了，因为作者觉得后来的值被查找的可能性更大一些，以此提升查找的效率     
+- 关于插入，**在java8之前是头插法**，新来的值取代原有的值，原有的值直接被顺推到链表中去了，因为作者觉得后来的值被查找的可能性更大一些，以此提升查找的效率     
 但是**java8开始都采用尾部插入**了，原因是要扩容（当长度达到Capacity*loadFactor时，插入引起碰撞则扩容），扩容需要新建一个2倍于原数组长度的数组，再遍历Entry数组，把每个Entry重新Hash到新的数组。但是**采用头插的话，resize时链表刚好翻转，且形成环状**，使用尾插则可以一直保持链表的形状不变，且可以避免形成环
 - **为什么重写equals后必须重写hashcode方法：** 因为HashMap放入元素的时候是根据hashCode方法来定位数组的位置的，如果两个元素equals相等，没有重写hashCode方法，那么就会被认为是不同的key，都放到HashMap里，这样实际上就存放了重复元素
 
@@ -2075,7 +2088,7 @@ static final float DEFAULT_LOAD_FACTOR = 0.75f;
 
 #### 7.2.6 链表和红黑树的互转
 - JDK1.8以前的设计只是采用链表的方式处理冲突，链表越长性能越差，JDK1.8开始**当链表长度大于8，并且桶容量大于64时**，将链表转为红黑树结构，以此让定位元素的时间复杂度接近O(logn)。
-- **链表转红黑树的过程中，记录了原有链表的顺序**，这样当红黑树转链表时直接把TreeNode转换为Node即可，转换条件是红黑树节点数少于5
+- **链表转红黑树的过程中，记录了原有链表的顺序**，这样当红黑树转链表时直接把TreeNode转换为Node即可，转换条件是红黑树节点数少于6
 - 关于更多红黑树的信息见算法和数据结构
 ![链表转红黑树](https://s1.ax1x.com/2020/09/28/0VBuOx.jpg)
 #### 7.2.7 get操作
@@ -2087,6 +2100,7 @@ static final float DEFAULT_LOAD_FACTOR = 0.75f;
 #### 7.2.8 HashMap的遍历顺序
 KeySet是遍历是无序的，但每次使用不同方式遍历包括keys.iterator()，它们遍历的结果是固定的     
 遍历顺序主要有三种：链表的顺序，红黑树的顺序，红黑树降为链表的顺序
+
 - 全链表时，按链表顺序依次访问
 ![链表的顺序](https://s1.ax1x.com/2020/09/28/0V0aoF.jpg)
 - 当链表过长转为红黑树时，树根会移动到数组头部，但其他顺序依然按链表顺序
@@ -2220,7 +2234,7 @@ JDK1.8的底层是数组+散列表+红黑树，并发访问的时候只对单独
 #### 7.6.6 ConcurrentHashMap 和 HashTable的区别
 - HashTable 无论key还是value都不能为null，线程安全
 - HashMap 可以存储null键和null值，线程不安全
-- ConcurrentHashMap 可以存储null键和null值，线程安全
+- ConcurrentHashMap 不可以存储null键和null值，线程安全
 - Hashtable 之所以效率低主要是使用了 `synchronized` 关键字对 put 等操作进行加锁，而 synchronized 关键字加锁是对整张 Hash 表的，即**每次锁住整张表让线程独占**，致使效率低下
 - `ConcurrentHashMap`使用`synchronized`和`CAS`来实现轻量级的同步：
   - **使用volatile保证当Node中的值变化时对于其他线程是可见的**
@@ -2263,7 +2277,6 @@ JDK1.8的底层是数组+散列表+红黑树，并发访问的时候只对单独
 
 #### 8.2.1 基本结构
 - 用到了可重入锁ReentrantLock
-  
 
 ![CopyOnWriteArrayList](https://s1.ax1x.com/2020/10/20/0zzk5T.png)
 
@@ -2340,7 +2353,7 @@ JDK1.8的底层是数组+散列表+红黑树，并发访问的时候只对单独
 `public Throwable getCause();`   返回一个Throwable 对象代表异常原因。
 
 2. 返回异常发生时的简要描述   
-`public public String toString();`    
+   `public public String toString();`    
    
 3. 打印异常信息到标准输出流   
 `public void printStackTrace();`   打印错误输出流   
@@ -2349,7 +2362,7 @@ JDK1.8的底层是数组+散列表+红黑树，并发访问的时候只对单独
 `public synchronized Throwable fillInStackTrace();`
 
 ## 2. Exception   
-- `Exception` 继承自 `Throwable`， 有两种异常 `RuntimeException` 和 `CheckedException`，这两种异常都应该去捕获
+- `Exception` 继承自 `Throwable`， 有两种异常 `RuntimeException` 和 `CheckedException`
 
 ### 2.1 常见的 RuntimeException 举例  
 - 程序的瑕疵或逻辑错误，并且在运行时无法恢复。      
@@ -2410,7 +2423,7 @@ JDK1.8的底层是数组+散列表+红黑树，并发访问的时候只对单独
     }
 ~~~
 - `throw` 是抛出异常给虚拟机处理，虚拟机处理的方式是打印异常，并在异常处终止程序的运行   
-- 程序使用catch捕捉异常时，不能随心所欲地捕捉所有的异常，程序可在任意想捕捉的地方捕捉RuntimeException异常、Exception,但是对于其他Checked异常，只能当try块可能抛出异常单时(try块中调用的某个方法声明抛出了该Checked异常),catch块才能捕捉该checked异常
+- 程序使用catch捕捉异常时，不能随心所欲地捕捉所有的异常，**程序可在任意想捕捉的地方捕捉RuntimeException异常、Exception**,但是**对于其他Checked异常，只能当try块可能抛出异常单时(try块中调用的某个方法声明抛出了该Checked异常),catch块才能捕捉该checked异常**
 
 ### 2.5 finally关键字
 
@@ -2485,19 +2498,23 @@ JDK1.8的底层是数组+散列表+红黑树，并发访问的时候只对单独
 ~~~
 
 - 动态类型语言(Dynamically Typed Language) ： 运行时才做数据类型检查的语言(JavaScript、Ruby、Python)       
-- 静态类型语言(Statically Typed Language) : 编译时进行数据类型检查，写程序时必须声明变量的数据类型(JAVA, C, C++, C#)  
-- 强类型语言，一个变量不经过强制转换，它永远是这个数据类型，不允许隐式的类型转换。举个例子：如果你定义了一个double类型变量a,不经过强制类型转换那么程序int b = a无法通过编译。典型代表是Java、Python
+- 静态类型语言(Statically Typed Language) : 编译时进行数据类型检查，写程序时必须声明变量的数据类型(JAVA, C, C++, C#, Golang) 
+- 强类型语言，一个变量不经过强制转换，它永远是这个数据类型，不允许隐式的类型转换。没有强制类型转换前，不允许两种不同类型的变量相互操作。举个例子：如果你定义了一个double类型变量a,不经过强制类型转换那么程序int b = a无法通过编译。典型代表是Java、Python、Golang
 - 弱类型语言：它与强类型语言定义相反,允许编译器进行隐式的类型转换，典型代表C/C++  
 ~~~python
     #动态类型语言python
     def sum(a, b):
-
         return a + b;
-
     print sum(1,2);
     print sum("Hello ", "Word")
 ~~~
-<center>   </center> 
+```
+// 弱类型
+> "1"+2
+'12'
+```
+
+
 
 ![aQ9fIO.png](https://s1.ax1x.com/2020/07/31/aQ9fIO.png)   
 
@@ -3559,5 +3576,4 @@ public class DemoObjectInputStream {
         System.out.print(value+"  ");
     }
 ~~~
-
 

@@ -149,12 +149,331 @@ p := new(int) 也就相当于 var t int,  p := &t
 
 
 
+### 3.4 变量的生命周期和逃逸分析
 
-
-### 3.4 变量的生命周期
 
 - 包级别声明的变量的生命周期和整个程序的生命周期一致
 - **局部变量**有动态的生命周期：从创建该局部变量起，到该变量不再有引用为止。。因此局部变量可能超出其局部作用域，在函数返回之后依然存在。。**对于逃逸的局部变量，必须分配在堆上**，对于没有逃逸的局部变量，编译器可以选择分配在栈上。（也可以分配在堆上由gc进行回收）
+
+发生逃逸的情况主要有两种：
+
+1. 方法逃逸：当一个对象在方法中定义之后，作为参数传递或返回值到其他方法中
+2. 线程逃逸：可能被其他线程访问到的变量
+
+这里主要针对**方法逃逸**进行分析，通过逃逸分析判断一个变量到底是分配在栈上还是堆上
+
+**策略**：编译器如果不能证明某个变量在函数返回后不再被引用，则分配在堆上。如果一个变量过大，也可能被分配在堆上
+
+**目的：** 尽量在栈上分配，减少GC压力。栈上分配更高效。未逃逸对象可以进行锁消除
+
+
+
+工具：`go run -gcflags "-m -l"`
+
+说明：
+
+moved to heap:xxx 和 xxx escapes to heap 都表示逃逸，前者表示值类型逃逸，后者表示指针类型逃逸
+
+
+
+
+
+#### 1. 函数返回局部变量地址引起逃逸
+
+函数**返回了局部变量的指针**，这种情况该变量一定发生了逃逸
+
+```go
+func f() (int, *int) {
+	var a = 2
+	var c = 2
+	//返回函数局部变量地址
+	return a, &c
+}
+
+func main() {
+	f()
+}
+
+/*
+$ go run -gcflags "-m -l" addr_escape.go
+# command-line-arguments
+.\addr_escape.go:5:6: moved to heap: c
+*/
+```
+
+可以看到 c 逃逸了，而 a 没有逃逸
+
+
+
+#### 2. 被已逃逸的指针引用的指针会逃逸
+
+某个值**取地址传递给函数**并不会发生逃逸
+
+```go
+func f() (int, *int) {
+	var a = 2
+	var c = 2
+	//返回函数局部变量地址
+	return a, &c
+}
+
+func add(a *int, b *int) int {
+	return *a + *b
+}
+func main() {
+	x, y := f()
+	add(&x, y)
+}
+/*
+$ go run -gcflags "-m -l" addr_escape.go
+# command-line-arguments
+.\addr_escape.go:5:6: moved to heap: c
+.\addr_escape.go:10:10: a does not escape
+.\addr_escape.go:10:18: b does not escape
+*/
+```
+
+可以看到 add 函数 传了 x 的地址，不会引起x逃逸
+
+
+
+而**被已经逃逸的变量引用的指针一定会发生逃逸**
+
+```go
+func f() (int, *int) {
+	var a = 2
+	var c = 2
+	//返回函数局部变量地址
+	return a, &c
+}
+
+func main() {
+	x, y := f()
+	fmt.Printf("addr_x: %p\naddr_y: %p\n", &x, y)
+}
+
+/*
+$ go run -gcflags "-m -l" addr_escape.go
+# command-line-arguments
+.\addr_escape.go:7:6: moved to heap: c
+.\addr_escape.go:13:2: moved to heap: x
+.\addr_escape.go:14:12: ... argument does not escape
+addr_x: 0xc000012120
+addr_y: 0xc000012128
+*/
+```
+
+```go
+type T struct {
+	TA *int
+	TB int
+}
+
+func f() (int, int) {
+	var a = 2
+	var c = 2
+	//返回函数局部变量地址
+	return a, c
+}
+
+func newT(ta *int, tb int) *T {
+	t := T{TA: ta, TB: tb}
+	return &t
+}
+
+func main() {
+	x, y := f()
+	t := newT(&x, y)
+	_ = t
+}
+
+/*
+$ go run -gcflags "-m -l" addr_escape.go
+# command-line-arguments
+.\addr_escape.go:15:11: leaking param: ta
+.\addr_escape.go:16:2: moved to heap: t
+.\addr_escape.go:21:2: moved to heap: x
+*/
+```
+
+这里t逃逸了！！ t又引用了x的地址，所以引起 x 逃逸，这才是逃逸的根本原因。。
+
+至于Printf：
+
+fmt.Printf 源码，p这个指针是通过newPrinter返回的，p是逃逸的，而p引用了 arg，arg是指针的时候就会造成arg逃逸
+
+```go
+func Fprintf(w io.Writer, format string, a ...interface{}) (n int, err error) {
+	p := newPrinter()		// p 逃逸了
+	p.doPrintf(format, a)
+...
+}
+
+func (p *pp) doPrintf(format string, a []interface{}) {
+...
+p.printArg(a[argNum], rune(c))
+...
+}
+
+func (p *pp) printArg(arg interface{}, verb rune) {  
+	p.arg = arg					// 逃逸的变量p，引用了arg，arg是指针的时候，也就是 x ，逃逸了，不是指针不逃逸
+	p.value = reflect.Value{}
+...
+}
+```
+
+
+
+#### 3. map、slice、chan引用的指针逃逸
+
+**被指针类型的slice、map和chan引用的指针一定发生逃逸**
+
+> 备注：stack overflow上有人提问为什么使用指针的chan比使用值的chan慢30%，答案就在这里：使用指针的chan发生逃逸，gc拖慢了速度。问题链接https://stackoverflow.com/questions/41178729/why-passing-pointers-to-channel-is-slower
+
+```go
+func main() {
+	a := make([]*int, 1)
+	b := 12
+	a[0] = &b
+
+	c := make(map[string]*int)
+	d := 14
+	c["aaa"] = &d
+
+	e := make(chan *int, 1)
+	f := 15
+	e <- &f
+}
+
+/*
+$ go run -gcflags "-m -l" slice_map_chan_escape.go
+# command-line-arguments
+.\slice_map_chan_escape.go:5:2: moved to heap: b
+.\slice_map_chan_escape.go:9:2: moved to heap: d
+.\slice_map_chan_escape.go:13:2: moved to heap: f
+.\slice_map_chan_escape.go:4:11: make([]*int, 1) does not escape
+.\slice_map_chan_escape.go:8:11: make(map[string]*int) does not escape
+*/
+```
+
+
+
+我们得出了指针**必然发生逃逸**的三种情况（go version go1.13.4 darwin/amd64)：
+
+- 在某个函数中new或字面量创建出的变量，将其指针作为函数返回值，则该变量一定发生逃逸（构造函数返回的指针变量一定逃逸）；
+- 被已经逃逸的变量引用的指针，一定发生逃逸；
+- 被指针类型的slice、map和chan引用的指针，一定发生逃逸；
+
+
+
+同时我们也得出一些**必然不会逃逸**的情况：
+
+- 指针被未发生逃逸的变量引用；
+- 仅仅在函数内对变量做取址操作，而未将指针传出；
+
+
+
+有一些情况**可能发生逃逸，也可能不会发生逃逸**：
+
+- 将指针作为入参传给别的函数；这里还是要看指针在被传入的函数中的处理过程，如果发生了上边的三种情况，则会逃逸；否则不会逃逸；
+
+
+
+#### 4. 栈空间不足逃逸
+
+创建较小的slice，没有逃逸：
+
+```go
+func main() {
+	stack()
+}
+
+func stack() {
+	s := make([]int, 10, 10)
+	s[0] = 1
+}
+
+/*
+$ go run -gcflags "-m -l" stack_escape.go
+# command-line-arguments
+.\stack_escape.go:8:11: make([]int, 10, 10) does not escape
+*/
+```
+
+
+
+创建超大slice，逃逸：
+
+```go
+func main() {
+	stack()
+}
+
+func stack() {
+	s := make([]int, 10000, 10000)
+	s[0] = 1
+}
+
+/*
+$ go run -gcflags "-m -l" stack_escape.go
+# command-line-arguments
+.\stack_escape.go:8:11: make([]int, 10000, 10000) escapes to heap
+*/
+```
+
+
+
+#### 5. 动态类型逃逸
+
+```go
+func main() {
+	dynamic()
+}
+
+func dynamic() interface{} {
+	i := 0
+	return i
+}
+
+/*
+$ go run -gcflags "-m -l" interface_escape.go
+# command-line-arguments
+.\interface_escape.go:9:2: i escapes to heap
+*/
+```
+
+
+
+#### 6. 闭包引用逃逸
+
+```go
+func main() {
+	f := fibonacci()
+	for i := 0; i < 10; i++ {
+		f()
+	}
+}
+func fibonacci() func() int {
+	a, b := 0, 1
+	return func() int {
+		a, b = b, a+b
+		return a
+	}
+}
+
+/*
+$ go run -gcflags "-m" closure_escape.go
+# command-line-arguments
+.\closure_escape.go:11:9: can inline fibonacci.func1
+.\closure_escape.go:10:2: moved to heap: a
+.\closure_escape.go:10:5: moved to heap: b
+.\closure_escape.go:11:9: func literal escapes to heap
+*/
+```
+
+
+
+
 
 ### 3.5 赋值
 
@@ -268,7 +587,7 @@ fmt.Println(c == Celsius(f)) // "true"!
 
 ### 3.7 包、文件、init函数
 
-对于在包级别声明的变量，如果有初始化表达式则用表达式初始化，还有一些没有初始化表达式的，例如某些表格数据初始化并不是一个简单的赋值过程。在这种情况下，我们可以用一个特殊的init初始化函数来简化初始化工作。每个文件都可以包含多个init初始化函数
+对于在包级别声明的变量，如果有初始化表达式则用表达式初始化，还有一些没有初始化表达式的，例如某些表格数据初始化并不是一个简单的赋值过程。在这种情况下，我们可以用一个特殊的init初始化函数来简化初始化工作。**每个文件都可以包含多个init初始化函数**
 
 ```go
 func init() { /* ... */ }
@@ -321,6 +640,59 @@ if x := f(); x == 0 {    //可以执行一个语句之后再进行判断
 }
 fmt.Println(x, y) // compile error: x and y are not visible here
 ```
+
+
+
+## 4. 大端和小端
+
+使用go语言判断CPU是大端还是小端：
+
+```go
+func main() {
+	var i int32 = 0x01020304
+	u := unsafe.Pointer(&i)
+	pb := (*int8)(u)
+	fmt.Println(*pb)
+}
+
+/*
+	  低地址 ------------> 高地址
+小端：	0x04 | 0x03 | 0x02 | 0x01
+大端：	0x01 | 0x02 | 0x03 | 0x04
+*/
+
+```
+
+大端序，就是高位字节放在低地址，符合人类的阅读习惯
+
+小端序，就是低位字节放在低地址，符合计算机读取内存的方式，从低到高读取
+
+
+
+大小端模式各有优势：
+
+- 小端模式强制转换类型时不需要调整字节内容，直接截取低字节即可
+
+- 大端模式由于符号位为第一个字节，很方便判断正负。
+
+
+
+java要判断大端还是小端就麻烦很多：
+
+```java
+public static void main(String[] args) throws NoSuchFieldException, IllegalAccessException {
+    Field field = Unsafe.class.getDeclaredField("theUnsafe"); //Unsafe构造方法私有，自身有个静态的属性是自己的实例
+    field.setAccessible(true);
+    Unsafe unsafe = (Unsafe) field.get(null); //field.get方法，获取类或者实例的field值，实例要传入实例，类的传什么都可以
+    long a = unsafe.allocateMemory(8);
+    unsafe.putInt(a, 0x01020304);
+    byte b = unsafe.getByte(a);
+    System.out.println(b);
+    unsafe.freeMemory(a);
+}
+```
+
+
 
 # 二、基本数据类型
 
@@ -415,6 +787,7 @@ fmt.Println(imag(x*y))           // "10"
 
 ## 5. 字符串
 
+<<<<<<< HEAD
 Go 语言中的字符串只是一个**只读**的字节数组，下图展示了 `"hello"` 字符串在内存中的存储方式：
 
 ![](picture/go语言要点/2019-12-31-15777265631608-in-memory-string.png)
@@ -444,6 +817,9 @@ go.string."hello" SRODATA dupok size=5
 ### 5.1 数据结构
 
 **字符串类型自身存储了长度，所以不需要\0作为结束标志**
+=======
+**字符串类型自身存储了长度，所以不需要`\0`作为结束标志**
+>>>>>>> 6e70e2079a26b2a263b7aa06cd174c808f873357
 
 字符串底层结构在`reflect.StringHeader`中定义
 
@@ -505,7 +881,7 @@ Utf-8编码是前缀编码，没有任何字符的编码是其它字符编码的
 
 `for range`不支持非utf8编码的字符串的遍历，非utf8编码的字符串可以看做是**只读的二进制数组**
 
-字符串中实际存储的是utf8编码，使用for range可以获得rune码点
+**字符串中实际存储的是utf8编码**，使用for range可以获得rune码点
 
 
 
@@ -648,13 +1024,13 @@ y := fmt.Sprintf("%d", x)
 fmt.Println(y, strconv.Itoa(x)) // 123 123
 ```
 
-`FormatInt`和FormatUint函数可以用不同的进制来格式化数字：
+`FormatInt`和`FormatUint`函数可以用不同的进制来格式化数字：
 
 ```go
 fmt.Println(strconv.FormatInt(int64(x), 2)) // "1111011"
 ```
 
-如果要将一个字符串解析为整数，可以使用strconv包的Atoi或`ParseInt`函数，还有用于解析无符号整数的ParseUint函数：
+如果要将一个字符串解析为整数，可以使用strconv包的`Atoi`或`ParseInt`函数，还有用于解析无符号整数的ParseUint函数：
 
 ```go
 x, err := strconv.Atoi("123")             // x is an int
@@ -838,11 +1214,29 @@ Slice（切片）代表变长的序列，序列中每个元素都有相同的类
 
 一个slice由三个部分构成：**指针、长度和容量**。指针指向第一个slice元素对应的底层数组元素的地址，要注意的是slice的第一个元素并不一定就是数组的第一个元素。长度对应slice中元素的数目；长度不能超过容量，容量一般是从slice的开始位置到底层数据的结尾位置。内置的`len`和`cap`函数分别返回slice的长度和容量
 
+```go
+// reflect.SliceHeader
+type SliceHeader struct {
+	Data uintptr
+	Len  int
+	Cap  int
+}
+
+// runtime.slice
+type slice struct {
+	array unsafe.Pointer
+	len   int
+	cap   int
+}
+```
+
+
+
 如果切片操作超出cap(s)的上限将导致一个panic异常，但是超出len(s)则是意味着扩展了slice，因为新slice的长度会变大
 
 和数组不同的是，**slice之间不能比较**，因此我们不能使用==操作符来判断两个slice是否含有全部相等元素。不过标准库提供了高度优化的`bytes.Equal`函数来判断两个字节型slice是否相等（[]byte），但是对于其他类型的slice，我们必须自己展开每个元素进行比较
 
-- **make函数**创建制定len和cap的Slice，省略cap时cap将和len相等...底层就是**创建了一个匿名的数组**，然后返回Slice
+- **make函数**创建指定len和cap的Slice，省略cap时cap将和len相等...底层就是**创建了一个匿名的数组**，然后返回Slice
 
 ```go
 make([]T, len)
@@ -943,9 +1337,9 @@ func Filter(s []byte, f func(x byte) bool) []byte {
 
 ### 切片指针
 
-切片本身就是指针，所以切片的指针是指针的指针
+切片本身就包含了数组的指针，所以切片的指针是指针的指针
 
-由于是两级指针，所以访问切片成员只能`(*p)[index]`不能简写
+由于是两级指针，所以访问切片成员（即数组成员）只能`(*p)[index]`不能简写
 
 
 
@@ -1214,7 +1608,7 @@ func main() {
 
 v每次都是slice**对应的值的一个拷贝**，对v修改是不会对原slice起作用的
 
-**v的地址没有变化**
+但**v的地址没有变化**，所以for range里使用闭包会有问题，后面闭包部分详解
 
 
 
@@ -1292,11 +1686,46 @@ var s []int
 
 一种可能的输出：[0 6 7 9]
 
+
+
+### 强行修改Cap后append会不会扩容
+
+```go
+	a := [3]int{1, 2, 3}
+	c := a[:2]
+	fmt.Printf("addr_c[0]: %p\n", &c[0])
+	f := (*reflect.SliceHeader)(unsafe.Pointer(&c))
+	f.Cap = 10
+	g := (*[]int)(unsafe.Pointer(f))
+	fmt.Printf("addr_g[0]: %p\n", &(*g)[0])
+	fmt.Println(f.Len)
+	fmt.Println(f.Cap)
+	fmt.Println(len(*g))
+	fmt.Println(cap(*g))
+	i := append(*g, 2, 2, 2, 2, 2)
+	fmt.Printf("addr_i[0]: %p\n", &i[0])
+
+
+/*
+addr_c[0]: 0xc0000a0220
+addr_g[0]: 0xc0000a0220
+2
+10
+2
+10
+addr_i[0]: 0xc0000a0220
+*/
+```
+
+没有扩容。。。会不会内存不安全?
+
+
+
 ## 3. Map
 
 map类型可以写为map[K]V，一个map中所有的key都是相同的类型，所有的value也都是相同的类型
 
-**key**可以是任何值，但**必须支持==操作**，**切片、函数以及包含切片的结构体**类型具有引用语义，不能作为map的key
+**key**可以是任何值，但**必须支持`==`操作**，**切片、函数以及包含切片的结构体**类型具有引用语义，不能作为map的key
 
 结构体支持`==`操作的前提是，结构体的每个成员都支持`==`操作
 
@@ -1324,7 +1753,7 @@ ages["bob"] = ages["bob"] + 1 //不存在bob也是安全的，首次访问返回
 ages["lili"]++   //和上面意思一样
 ```
 
-- 对map的元素取址的操作是不允许的，例如`_ = &ages["bob"]`，这是因为随着map的增长，可能会导致内存重新分配，从而之前的地址失效
+- **对map的元素取址的操作是不允许的**，例如`_ = &ages["bob"]`，这是因为随着map的增长，可能会导致内存重新分配，从而之前的地址失效
 - 使用range迭代访问map的访问顺序是不确定的，每次遍历顺序都不相同
 - 要排序key的方式输出value，可以先获取全部的key，排序之后再依次获取value
 
@@ -1372,7 +1801,17 @@ if age, ok := ages["bob"]; !ok { /* ... */ }
 
 **字面量：**
 
-当哈希表中的元素数量少于或者等于 25 个时，编译器会将字面量初始化的结构体转换成以下的代码，将所有的键值对一次加入到哈希表中：
+```go
+hash := map[string]int{
+	"1": 2,
+	"3": 4,
+	"5": 6,
+}
+```
+
+这种使用字面量初始化的方式最终都会通过 [`cmd/compile/internal/gc.maplit`](https://draveness.me/golang/tree/cmd/compile/internal/gc.maplit) 初始化
+
+当哈希表中的元素数量少于或者等于 25 个时，编译器会将字面量初始化的结构体转换成以下的代码，将所有的键值对一次加入到哈希表中。
 
 ```go
 hash := make(map[string]int, 3)
@@ -1420,17 +1859,17 @@ h.hash0 = fashtrand0()
 
 ```go
 type hmap struct {
-	count     int      //哈希表中元素数量
-	flags     uint8
+	count     int      //哈希表中键值对数量
+	flags     uint8	   //状态标识：正在写、扩容、oldbuckets遍历等
 	B         uint8    //buckets 数量，对数表示，buckets = 2^B，桶的数量都是2的幂
-	noverflow uint16
+	noverflow uint16   //溢出桶里bmap的大致数量
 	hash0     uint32   //哈希种子，引入随机性
 
-	buckets    unsafe.Pointer
+	buckets    unsafe.Pointer	//指向 []bmap 数组
 	oldbuckets unsafe.Pointer   //扩容时，保存之前的buckets
-	nevacuate  uintptr
+	nevacuate  uintptr			//分流次数，成倍扩容分流操作计数字段
 
-	extra *mapextra
+	extra *mapextra			//溢出桶
 }
 
 type mapextra struct {
@@ -1439,13 +1878,217 @@ type mapextra struct {
 
 	nextOverflow *bmap
 }
+```
 
+![hmap-and-buckets](picture/go语言要点/hmap-and-buckets.png)
+
+每个`runtime.bmap`都能存储8个键值对，当哈希表存储的数据过多，单个桶已经装满，就会使用`extra.nextOverflow`中桶存储溢出的数据，这两种桶在内存中都是连续存储的，称为正常桶和溢出桶
+
+```go
 // A bucket for a Go map.
 type bmap struct {
-	tophash [bucketCnt]uint8
+	tophash [bucketCnt]uint8  //bmap中只存放了tophash，即hash的高8位
+}
+```
+
+运行时，`runtime.bmap`不止这个字段，因为**Go不支持泛型，map可以存放很多种数据类型的键值对，所以键值对占据的内存空间大小只能在编译时进行推导**，所以定义的时候不包含这些字段。根据编译期间的 [`cmd/compile/internal/gc.bmap`](https://draveness.me/golang/tree/cmd/compile/internal/gc.bmap) 函数重建它的结构如下：
+
+```go
+type bmap struct {
+    topbits  [8]uint8
+    keys     [8]keytype
+    values   [8]valuetype
+    pad      uintptr
+    overflow uintptr
+}
+```
+
+随着哈希表存储数据增多，会扩容哈希表或者使用额外的桶存储溢出的数据，不会让单个桶中的数据超过8个。。溢出桶只是临时方案，过多的溢出桶也会导致哈希表的扩容
+
+
+
+### 查找
+
+哈希会依次遍历正常桶和溢出桶中的数据，它会先比较哈希的高 8 位和桶中存储的 `tophash`，后比较传入的和桶中的值以加速数据的读写。用于选择桶序号的是哈希的最低几位，而用于加速访问的是哈希的高 8 位，这种设计能够减少同一个桶中有大量相等 `tophash` 的概率影响性能。
+
+每一个桶都是一整片的内存空间，当发现桶中的 `tophash` 与传入键的 `tophash` 匹配之后，我们会通过指针和偏移量获取哈希中存储的键 `keys[0]` 并与 `key` 比较，如果两者相同就会获取目标值的指针 `values[0]` 并返回。
+
+![hashmap-mapaccess](picture/go语言要点/hashmap-mapaccess.png)
+
+```go
+func mapaccess1(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
+	//...
+	hash := t.hasher(key, uintptr(h.hash0))
+	m := bucketMask(h.B)
+    //找到对应的bmap地址
+	b := (*bmap)(add(h.buckets, (hash&m)*uintptr(t.bucketsize)))
+    //存在旧桶，说明在扩容，去旧桶找
+	if c := h.oldbuckets; c != nil {
+		if !h.sameSizeGrow() {
+			// There used to be half as many buckets; mask down one more power of two.
+			m >>= 1
+		}
+		oldb := (*bmap)(add(c, (hash&m)*uintptr(t.bucketsize)))
+		if !evacuated(oldb) {
+			b = oldb
+		}
+	}
+	top := tophash(hash)
+bucketloop:
+    //对bmap中的key遍历，如果有溢出桶也要遍历
+	for ; b != nil; b = b.overflow(t) {
+		for i := uintptr(0); i < bucketCnt; i++ {
+            // tophash加速，tophash不相等直接下一个
+			if b.tophash[i] != top {
+				if b.tophash[i] == emptyRest {
+					break bucketloop
+				}
+				continue
+			}
+            // 根据key的大小，找到下一个key的地址
+			k := add(unsafe.Pointer(b), dataOffset+i*uintptr(t.keysize))
+			if t.indirectkey() {
+				k = *((*unsafe.Pointer)(k))
+			}
+			if t.key.equal(key, k) {
+				e := add(unsafe.Pointer(b), dataOffset+bucketCnt*uintptr(t.keysize)+i*uintptr(t.elemsize))
+				if t.indirectelem() {
+					e = *((*unsafe.Pointer)(e))
+				}
+				return e
+			}
+		}
+	}
+	return unsafe.Pointer(&zeroVal[0])
+}
+```
+
+
+
+### 写入和扩容
+
+写入和查找差不多，如果当前桶已经满了，调用`runtime.hmap.newoverflow`创建新桶或者使用 [`runtime.hmap`](https://draveness.me/golang/tree/runtime.hmap) 预先在 `noverflow` 中创建好的桶来保存数据，新创建的桶不仅会被追加到已有桶的末尾，还会增加哈希表的 `noverflow` 计数器。
+
+触发扩容的条件：
+
+1. 装载因子已经超过 6.5；
+2. 哈希使用了太多溢出桶；
+
+因为 Go 语言哈希的扩容不是一个原子的过程，所以 [`runtime.mapassign`](https://draveness.me/golang/tree/runtime.mapassign) 还需要判断当前哈希是否已经处于扩容状态，避免二次扩容造成混乱
+
+扩容的入口是 [`runtime.hashGrow`](https://draveness.me/golang/tree/runtime.hashGrow)：
+
+```go
+func hashGrow(t *maptype, h *hmap) {
+	bigger := uint8(1)
+    // 如果装载因子没有超过6.5，进行等量扩容
+	if !overLoadFactor(h.count+1, h.B) {
+		bigger = 0
+		h.flags |= sameSizeGrow
+	}
+	oldbuckets := h.buckets
+	newbuckets, nextOverflow := makeBucketArray(t, h.B+bigger, nil)
+
+	h.B += bigger
+	h.flags = flags
+	h.oldbuckets = oldbuckets
+	h.buckets = newbuckets
+	h.nevacuate = 0
+	h.noverflow = 0
+
+	h.extra.oldoverflow = h.extra.overflow
+	h.extra.overflow = nil
+	h.extra.nextOverflow = nextOverflow
+}
+```
+
+哈希在扩容的过程中会通过 [`runtime.makeBucketArray`](https://draveness.me/golang/tree/runtime.makeBucketArray) 创建一组新桶和预创建的溢出桶，随后将原有的桶数组设置到 `oldbuckets` 上并将新的空桶设置到 `buckets` 上，溢出桶也使用了相同的逻辑更新，下图展示了触发扩容后的哈希：
+
+![hashmap-hashgrow](picture/go语言要点/hashmap-hashgrow.png)
+
+等量扩容创建的新桶数量和旧桶一样多！之后通过[`runtime.evacuate`](https://draveness.me/golang/tree/runtime.evacuate) 完成数据的迁移，对桶中元素进行再分配
+
+成倍扩容的再分配方式就是将一个旧桶的数据分配到两个新桶中，因为扩容是扩大2倍，对应放进去就好了，多增加一位掩码，多&一位即可
+
+如果是等量扩容的再分配，旧桶和新桶是一对一的
+
+
+
+等量扩容是由于溢出桶太多（溢出桶超过常规桶数目）。可能是前面的很多键值对被删除，导致key在桶中分配不均匀了。所以重新迁入新桶中
+
+
+
+### 删除
+
+删除和写入逻辑类似，如果删除期间遇到了哈希表扩容，就会分流桶中元素，分流结束之后会找到桶中的目标元素完成键值对的删除操作
+
+```go
+func mapdelete(t *maptype, h *hmap, key unsafe.Pointer) {
+	// ...
+	if h.flags&hashWriting != 0 {
+		throw("concurrent map writes")
+	}
+
+	hash := t.hasher(key, uintptr(h.hash0))
+
+	h.flags ^= hashWriting
+
+	bucket := hash & bucketMask(h.B)
+    
+    // 在扩容，
+	if h.growing() {
+		growWork(t, h, bucket)
+	}
+	b := (*bmap)(add(h.buckets, bucket*uintptr(t.bucketsize)))
+	bOrig := b
+	top := tophash(hash)
+search:
+	for ; b != nil; b = b.overflow(t) {
+		for i := uintptr(0); i < bucketCnt; i++ {
+			if b.tophash[i] != top {
+				if b.tophash[i] == emptyRest {
+					break search
+				}
+				continue
+			}
+			k := add(unsafe.Pointer(b), dataOffset+i*uintptr(t.keysize))
+			k2 := k
+			if t.indirectkey() {
+				k2 = *((*unsafe.Pointer)(k2))
+			}
+			if !t.key.equal(key, k2) {
+				continue
+			}
+			// Only clear key if there are pointers in it.
+			if t.indirectkey() {
+				*(*unsafe.Pointer)(k) = nil
+			} else if t.key.ptrdata != 0 {
+				memclrHasPointers(k, t.key.size)
+			}
+			e := add(unsafe.Pointer(b), dataOffset+bucketCnt*uintptr(t.keysize)+i*uintptr(t.elemsize))
+			if t.indirectelem() {
+				*(*unsafe.Pointer)(e) = nil
+			} else if t.elem.ptrdata != 0 {
+				memclrHasPointers(e, t.elem.size)
+			} else {
+				memclrNoHeapPointers(e, t.elem.size)
+			}
+			b.tophash[i] = emptyOne
+			// ...
+		}
+	}
+
+	if h.flags&hashWriting == 0 {
+		throw("concurrent map writes")
+	}
+	h.flags &^= hashWriting
 }
 
 ```
+
+
+
+
 
 [由浅到深，入门Go语言Map实现原理 - Go语言中文网 - Golang中文社区 (studygolang.com)](https://studygolang.com/articles/32943)
 
@@ -1454,6 +2097,8 @@ type bmap struct {
 [Golang Map 实现 （四） map的赋值和扩容 - Go语言中文网 - Golang中文社区 (studygolang.com)](https://studygolang.com/articles/28350)
 
 [深入理解 Go map：赋值和扩容迁移 - Go语言中文网 - Golang中文社区 (studygolang.com)](https://studygolang.com/articles/19251)
+
+
 
 ## 4. 结构体
 
@@ -1485,7 +2130,7 @@ EmployeeByID(id).Salary = 0 // fired for... no real reason
 
 如果将EmployeeByID函数的返回值从`*Employee`指针类型改为Employee值类型，那么更新语句将不能编译通过，因为在赋值语句的左边并不确定是一个变量（调用函数返回的是值，并不是一个可取地址的变量）
 
-**一个命名为S的结构体类型将不能再包含S类型的成员：因为一个聚合的值不能包含它自身**。但是S类型的结构体**可以包含`*S`指针类型**的成员，这可以让我们创建递归的数据结构，比如链表和树结构等
+**一个命名为S的结构体类型将不能再包含S类型的成员：因为一个聚合的值不能包含它自身**。但是S类型的结构体**可以包含`*S`指针类型**的成员，这可以让我们创建递归的数据结构，比如链表和树结构等(因为这个特)
 
 - 可以使用空的struct和map来模拟set。**struct{}表示空的struct，它的大小为0，也不包含任何信息**
 
@@ -1667,13 +2312,163 @@ fmt.Println(titles) // "[{Casablanca} {Cool Hand Luke} {Bullitt}]"
 
 
 
-## 7. 基本类型和引用类型
+## 7. golang类型总结
 
-基本类型(内置类型)：数值，字符串，布尔，数组和结构体
+基本类型(内置类型)：数值，字符串，布尔
 
-引用类型：切片、map、channel、接口、函数
+复合类型：数组和结构体
+
+引用类型：指针、切片、map、channel
+
+接口类型：接口
+
+函数类型
 
 
+
+## 8. 关于可等性
+
+`==`操作的前提是两个操作数的**类型必须相同**，如果类型不同，编译时就会报错，而且类型非常严格，不会进行类型的隐式转换，即使底层类型相同也不能直接比较
+
+例如：
+
+```go
+    var a int8
+    var b int16
+    // 编译错误：invalid operation a == b (mismatched types int8 and int16)
+    fmt.Println(a == b)
+    
+
+    type int8 myint8
+    var a int8
+    var b myint8
+    // 编译错误：invalid operation a == b (mismatched types int8 and myint8)
+    fmt.Println(a == b)
+```
+
+### 基本类型
+
+基本类型只要类型相同可以直接比较
+
+注意浮点数不能精确表示
+
+```go
+var a float64 = 0.1
+var b float64 = 0.2
+var c float64 = 0.3
+fmt.Println(a + b == c) // false
+```
+
+
+
+### 复合类型
+
+对于数组和结构体这种复合类型，需要逐个元素/逐个字段比较，根据元素的类型再按相应规则进行比较
+
+注意长度不同的两个数组类型不同，不能直接比较
+
+```go
+type A struct {
+    a int
+    b string
+}
+aa := A { a : 1, b : "test1" }
+bb := A { a : 1, b : "test1" }
+cc := A { a : 1, b : "test2" }
+fmt.Println(aa == bb)   //true
+fmt.Println(aa == cc)	//false
+```
+
+如果数组或者结构体中含有不可比较类型（例如map，slice等），那么这个数组/结构体也是不可比较的
+
+
+
+### 引用类型
+
+引用类型是间接指向他们所引用的数据的，保存的是数据的地址
+
+引用类型的比较实际上是**判断两个变量是不是指向同一份数据**，他们不会比较实际指向的数据
+
+特殊规定：
+
+- 切片之间不允许比较。切片只能与`nil`值比较。
+- `map`之间不允许比较。`map`只能与`nil`值比较。
+
+因为interface{}类型的切片可以指向自己，递归引用，如果比较里面的元素，可能会直接爆栈，golang规定**切片不允许比较**，使用`==`操作的时候直接编译报错
+
+对于map，因为map类型的值类型可能是不可比较的类型，所以map也不允许比较
+
+map的key是使用`==`来判断的，所以所有不可比较类型都不可以作为map的key
+
+
+
+看看指针的比较：
+
+```go
+type A struct {
+    a int
+    b string
+}
+
+aa := &A { a : 1, b : "test1" }
+bb := &A { a : 1, b : "test1" }
+cc := aa
+fmt.Println(aa == bb)
+fmt.Println(aa == cc)
+```
+
+因为`aa`和`bb`指向的两个不同的结构体，虽然它们指向的值是相等的（见上面复合类型的比较），但是它们不等。 `aa`和`cc`指向相同的结构体，所以它们相等。
+
+
+
+再看channel：
+
+```go
+ch1 := make(chan int, 1)
+ch2 := make(chan int, 1)
+ch3 := ch1
+
+fmt.Println(ch1 == ch2)
+fmt.Println(ch1 == ch3)
+```
+
+`ch1`和`ch2`虽然类型相同，但是指向不同的`channel`，所以它们不等。 `ch1`和`ch3`指向相同的`channel`，所以它们相等。
+
+
+
+### 接口类型
+
+接口类型的值是由两个部分组成的：动态类型和动态值
+
+接口比较，必须要**动态类型相同(一个接口可以转化为另一个接口)**，并且**动态值相等**，这两个接口值才是相等的
+
+```go
+type A struct {
+    a int
+    b string
+}
+
+var aa interface{} = A { a: 1, b: "test" }
+var bb interface{} = A { a: 1, b: "test" }
+var cc interface{} = A { a: 2, b: "test" }
+
+fmt.Println(aa == bb) // true
+fmt.Println(aa == cc) // false
+
+var dd interface{} = &A { a: 1, b: "test" }
+var ee interface{} = &A { a: 1, b: "test" }
+fmt.Println(dd == ee) // false
+```
+
+`aa`和`bb`动态类型相同（都是`A`），动态值也相同（结构体`A`，见上面复合类型的比较规则），故两者相等。 `aa`和`cc`动态类型相同，动态值不同，故两者不等。
+
+ `dd`和`ee`动态类型相同（都是`*A`），动态值使用指针（引用）类型的比较，由于不是指向同一个地址，故不等。
+
+
+
+### 函数类型
+
+不能比较
 
 
 
@@ -3439,6 +4234,37 @@ func main() {
 ```
 
 并发的事件是无法确定发生顺序的。为了最大化并行，go编译器和处理器会在对语句/指令进行重排序，前提是保证 as-if-serial，保证 `happens before` 原则
+
+
+
+## 6. happens-before
+
+[Golang 并发编程核心—内存可见性](https://juejin.cn/post/6911126210340716558)
+
+happens-before 是比 **指令重排、内存屏障**这些概念更上层的东西，是语言层面给我们的承诺。我们没有办法穷举在所有计算机架构下重排序会如何发生，也没办法为重排序定义该在什么时候插入屏障来阻止重排序、刷新 cache 的顺序，这个是无法做到的事情。
+
+happens-before表示的是**前一个操作的结果对于后续操作是可见的**，它表达了**多个线程之间对于内存的可见性**，本质上是一种偏序关系，所以满足传递性
+
+> 为什么要有happens-before原则：
+>
+> 如果Java、Go语言提供内存屏障操作，让开发者自己决定何时插入屏障，那么并发代码的开发将很难写，易出错(C就是)
+>
+> 对于编译器和CPU来说，这些内存屏障，优化屏障都是约束，让底层无法随心所欲进行优化，这些约束肯定越少越好
+
+happens-before像是几条公理，只有我们开发的时候遵守这些规则，才能保证正确的语义，满足正确的可见性
+
+Channel涉及到的happens-before规则有4跳，最多，Golang里面channel才是保证内存可见性、有序性、代码同步的第一选择：
+
+1. `import package` 的时候，如果 package p 里面执行 `import q` ，那么逻辑顺序上 package q 的 init 函数执行先于 package p 后面执行任何其他代码。
+2. `goroutine创建`：goroutine的创建函数本身 happens before 于 goroutine 内的第一行代码执行
+3. `goroutine销毁`：goroutine 的 exit 事件并不保证先于所有的程序内的其他事件，或者说某个 goroutine exit 的结果并不保证对其他goroutine可见
+4. `channel写入`：像channel写入 happens before 于对应元素的读取操作
+5. `channel关闭`：channel的关闭 happens before 于channel的接收(<-chan)的返回，也就是说channel一定可以接收到关闭前写入的信息
+6. `无缓冲channel`：无缓冲channel的接收操作 happens before 发送操作
+7. `有缓冲channel`：缓冲长度为C的channel，第K个元素的接收先于第K+C个元素的发送
+8. `锁`：针对任意 `sync.Mutex` 和 `sync.RWMutex` 的锁变量 L，第 n 次调用 `L.Unlock()` 逻辑先于（结果可见于）第 m 次调用 `L.Lock()` 操作 （n<m）。也就是下次加锁必须等待上次的锁释放
+9. `读写锁`：针对 `sync.RWMutex` 类型的锁变量 L， `L.Unlock( )` 可见于 `L.Rlock( )` ，第 n 次的 `L.Rlock( )` 先于 第 n+1 次的 `L.Lock()`
+10. `once`：`f( )` 函数执行先于 `once.Do(f)` 的返回。换句话说，`f( )` 必定先执行完，`once.Do(f)` 函数调用才能返回
 
 
 
