@@ -1002,13 +1002,13 @@ Term, voteFor 和 logs 这三个变量一旦发生变化就一定要在被其他
 
 #### mainLoop和两个计时器
 
-<img src="picture/goWeb与微服务/image-20210726190053173.png" alt="image-20210726190053173" style="zoom:67%;" />
+<img src="picture/goWeb与微服务/image-20210728112744437.png" alt="image-20210728112744437" style="zoom: 80%;" />
 
 `timerElection()`和`timerHeartbeat()`，定时向通道写入数据：
 
-<img src="picture/goWeb与微服务/timerElection.png" alt="timerElection" style="zoom:67%;" />
+<img src="picture/goWeb与微服务/image-20210728112832682.png" alt="image-20210728112832682" style="zoom:80%;" />
 
-<img src="picture/goWeb与微服务/timerHeartbeat.png" alt="timerHeartbeat" style="zoom:67%;" />
+<img src="picture/goWeb与微服务/image-20210728112918164.png" alt="image-20210728112918164" style="zoom:80%;" />
 
 #### Leader选举
 
