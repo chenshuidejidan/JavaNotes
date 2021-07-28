@@ -1,4 +1,4 @@
-一、web应用的组成
+# 一、web应用的组成
 
 ## 1. MVC模式
 
@@ -567,29 +567,21 @@ docker search
 
 ### 1.1 CAP理论
 
-1985年，Lynch教授证明了：**在一个不稳定（消息要么乱序要么丢了）的网络环境里（分布式异步模型），想始终保持数据一致是不可能的**
-
-也就是说，在分布式系统中，必须要妥协，于是有了CAP理论：
-
 ![image-20210715204136439](picture/goWeb与微服务/image-20210715204136439.png)
 
 分布式系统的三个指标：
 
-1. **数据一致性(C)**：指整个系统的数据能一起变化！对一个节点的成功写入，对之后从其他节点的读取而言是可见的。当系统内部发生问题导致节点数据不一致后，外部对每个节点的读取请求依然一致（读请求会看到旧的一致数据）。
-2. **系统可用性(A)**：系统可以提供服务的时间占总时间的比例。。。（可靠性是提供服务的正确性，可用性是是否能提供服务）。要保证可用的意思是，即使数据不一致，数据落后，依然要想客户端返回这个数据
-3. **分区容错性(P)**：分布系统多节点独立，需要相互通信，当节点之间通信出现问题，无法联通时（分区），我们就认为出现了分区。分区可能是网络故障或者机器故障。分区容忍性就是，即使系统发生了分区，依然要继续运行
+1. 数据一致性(C)：希望系统读到最新写入的数据
+2. 系统可用性(A)：系统可以提供服务的时间占总时间的比例。。。（可靠性是提供服务的正确性，可用性是是否能提供服务）
+3. 分区容错性(P)：分布系统多节点独立，需要相互通信，当节点无法联通时（分区），整个系统仍然可以工作
 
-显然分区容错性是必须要满足的，否则系统都不能工作了没有实际意义了，这就需要**复制多份**
+显然分区容错性是必须要满足的，否则系统都不能工作了没有意义了，这就需要**复制多份**
 
-**保证可用性：** 系统无法联通的时候忍受数据不一致的问题，为了可用，返回给客户端不一致的数据。AP系统例如：Eureka
+**保证可用性：** 系统无法联通的时候忍受数据不一致的问题，使用剩余的服务器提供服务
 
-**保证一致性：** 数据很重要，无法联通时要等待数据同步以后才能提供服务，只提供一致的数据。CP系统例如：ZooKeeper
+**保证一致性：** 数据很重要，无法联通时要等待数据同步以后才能提供服务
 
 
-
-我们说的都是出现分区的情况，当系统没有分区，当然满足CAP三者，系统拥有完美的数据一致性和可用性
-
-CAP三种特性并不是布尔的，不是一致和不一致，可用和不可用，分区和不分区的二选一，这三种特性都是范围类型。例如如果一台机器出现问题，可能不影响业务，就会被机器投票认为分区不存在，然后一直等待多台出现问题（例如超过一半），才投票确认出现了分区问题。
 
 
 
@@ -610,7 +602,19 @@ CAP三种特性并不是布尔的，不是一致和不一致，可用和不可�
 
 
 
-#### 2.1.1 RPC
+### 2.2 异步消息调用
+
+异步消息的方式在分布式系统中有特别广泛的应用，他既能减低调用服务之间的耦合，又能成为调用之间的缓冲，确保消息积压不会冲垮被调用方，同时能保证调用方的服务体验，继续干自己该干的活，不至于被后台性能拖慢
+
+
+
+异步消息需要付出的代价就是一致性的减弱，需要接受数据的**最终一致性**
+
+常见的异步消息调用框架有：`Kafka`、`Notify`、`MessageQueue`
+
+
+
+#### 2.2.1 RPC
 
 一个正常的RPC过程可以分为一下几个步骤：
 
@@ -626,18 +630,6 @@ CAP三种特性并不是布尔的，不是一致和不一致，可用和不可�
 - **Call ID映射。**远端进程中间可以包含定义的多个函数，本地客户端该如何告知远端进程程序调用特定的某个函数呢？因此，在RPC调用过程中，所有的函数都需要有一个自己的ID。开发者在客户端（调用端）和服务端（被调用端）分别维护一个`{函数<-->Call ID}`的对应表。两者的表不一定完全相同，但是相同的函数对应的Call ID必须相同。当客户端需要进行远程调用时，调用者通过映射表查询想要调用的函数的名称，找到对应的Call ID，然后传递给服务端，服务端也通过查表，来确定客户端所需要调用的函数，然后执行相应函数的代码。
 - **序列化与反序列化。**在本地调用中，我们只需要把参数压到栈里，然后让函数自己去栈里读就行。但是在远程过程调用时，客户端跟服务端是不同的进程，不能通过内存来传递参数。这时候就需要客户端把参数先转成一个字节流，传给服务端后，再把字节流转成自己能读取的格式。这个过程叫序列化和反序列化。
 - **网络传输。**远程调用往往用在网络上，客户端和服务端是通过网络连接的。所有的数据都需要通过网络传输，因此就需要有一个网络传输层。**网络传输层需要把Call ID和序列化后的参数字节流传递给服务端，然后在把序列化后的调用结果传回给客户端**，完成这种数据传递功能的被成为传输层。大部分的网络传输成都使用TCP协议，属于长连接。
-
-
-
-### 2.2 异步消息调用
-
-异步消息的方式在分布式系统中有特别广泛的应用，他既能减低调用服务之间的耦合，又能成为调用之间的缓冲，确保消息积压不会冲垮被调用方，同时能保证调用方的服务体验，继续干自己该干的活，不至于被后台性能拖慢
-
-
-
-异步消息需要付出的代价就是一致性的减弱，需要接受数据的**最终一致性**
-
-常见的异步消息调用框架有：`Kafka`、`Notify`、`MessageQueue`
 
 
 
@@ -723,17 +715,8 @@ https://blog.csdn.net/ystyaoshengting/article/details/105048798
 
 根据CAP理论，分布式系统不能同时满足CAP三点。一致性的分类：
 
-- **线性一致性：** 又称为强一致性、严格一致性、原子一致性。是程序能实现的最高一致性模型，也是分布式系统中用户最期望的一致性。保证系统改变提交以后立即改变集群的状态，例如 `Paxos, Raft(Multi-Paxos)`
-
-- **顺序一致性：**顺序一致性中进程只关心大家认同的顺序一样就行，不需要与全局时钟一致，没有线性一致性严格，线性一致性要从这种偏序到达全序。例如 `ZAB(Multi-Paxos,准确讲是顺序一致性)`
-
+- **强一致性：** 保证系统改变提交以后立即改变集群的状态，例如 `Paxos, Raft(Multi-Paxos), ZAB(Multi-Paxos)`
 - **弱一致性：** 也叫最终一致性，系统不保证改变提交后立即改变集群的状态，但是随着时间的推移，最终状态是一致的。例如 `DNS系统, Gossip协议`
-
-  ![img](picture/goWeb与微服务/v2-df804a5179524594ba34fb9fb5991c33_720w.jpg)
-
-ZAB主要保证的是**顺序一致性**语义，而Raft保证的则是**线性一致性**语义。尽管他们都算是强一致性，但是顺序一致性没有时间维度的约束，所以可能不满足现实世界的时序。也就是说现实中顺序一致性是可能返回旧数据的。尽管ZK保证了但客户端的FIFO顺序，但是有些场景还是有一些受限，etcd的线性一致性更好。
-
-Raft实现线性一致性，要求所有的read/write都来到Leader，write有严格顺序，一个write被committed代表前面的write的log一定就被committed了，所有的write一旦被committed就可见了，所以是线性一致的。如果使用follower来read，要求follower去Leader查询最新的commitedIndex，然后根据这个Index从follower读，就能保证读取到最新的数据，当前etcd就实现了follower read
 
 
 
@@ -901,232 +884,33 @@ Raft算法将时间分为一个个的任期（term），每一个term的开始�
 
 
 
-#### 主要数据结构
+**Leader选举过程：**
 
-Raft 节点的结构：
+1. Raft 使用`心跳（heartbeat）`触发Leader选举。Leader向所有Followers周期性发送heartbeat。如果Follower在选举超时时间内没有收到Leader的heartbeat，就会**等待一段随机的时间后发起一次Leader选举**
 
-```go
-type Raft struct {
-	mu        sync.Mutex          // lock to protect shared access to this peer's state
-	peers     []*labrpc.ClientEnd // RPC end points of all peers
-	persister *Persister          // Object to hold this peer's persisted state
-	me        int                 // this peer's index into peers[]
-	dead      int32               // set by Kill()
+2. **Follower将当前term加1，然后转换为Candidate状态，并给自己投票**，然后向及群众的其他服务器发送`RequestVote RPC`
+3. 选举结果：
+   - 赢得了多数选票，成为Leader
+   - 收到了Leader的消息，表示其他服务器抢先做了Leader
+   - 没有服务器赢得多数的选票，选举失败，等待选举超市时间后(`Election Timeout`)，开始下一次选举
 
-	role Role
-	term int
-
-	electionTimer       *time.Timer
-	appendEntriesTimers []*time.Timer
-	applyTimer          *time.Timer
-	notifyApplyCh       chan struct{}
-	stopCh              chan struct{}
-
-	voteFor           int        // server id, -1 for null
-	logEntries        []LogEntry // lastSnapshot 放到 index 0
-	applyCh           chan ApplyMsg
-	commitIndex       int
-	lastSnapshotIndex int // 快照中的 index
-	lastSnapshotTerm  int
-	lastApplied       int   // 此 server 的 log commit
-	nextIndex         []int // 下一个要发送给peer的index（根据peer编号取）
-	matchIndex        []int // 确认 match 的
-
-	DebugLog  bool      // print log
-	lockStart time.Time // debug 用，找出长时间 lock
-	lockEnd   time.Time
-	lockName  string
-	gid       int
-}
-```
+4. 选举出Leader后，Leader通过定期向所有Followers发送心跳信息维持其统治。若Follower一段时间未收到Leader的心跳则认为Leader可能已经挂了，再次发起Leader选举过程
 
 
 
-RequestVoteArgs 和 RequestVoteReply：
-
-```go
-type RequestVoteArgs struct {
-	Term         int
-	CandidateId  int
-	LastLogIndex int
-	LastLogTerm  int
-}
-
-type RequestVoteReply struct {
-	Term        int
-	VoteGranted bool
-}
-```
-
-
-
-AppendEntriesArgs 和 AppendEntriesReply：
-
-```go
-type AppendEntriesArgs struct {
-	Term         int
-	LeaderId     int
-	PrevLogIndex int
-	PervLogTerm  int
-	Entries      []LogEntry
-	LeaderCommit int
-}
-
-type AppendEntriesReply struct {
-	Term      int
-	Success   bool
-	NextIndex int
-}
-```
-
-
-
-几个超时时间需要留意：
-
-```go
-	ElectionTimeout  = time.Millisecond * 300 // 选举超时时间，超时未收到AppendEntriesRPC则开始选举，每次开始选举时重置，150~300随机
-	HeartBeatTimeout = time.Millisecond * 150 // leader 发送心跳(日志)的时间间隔，对每个peer都有一个
-	ApplyInterval    = time.Millisecond * 100 // apply log的时间间隔
-	RPCTimeout       = time.Millisecond * 100 // RPC的超时时间
-```
-
-
-
-#### 关于持久化
-
-`Term, votedFor, log[]` 这三者每次改变都要进行持久化，这样宕机之后才可以顺利恢复
-
-Term, voteFor 和 logs 这三个变量一旦发生变化就一定要在被其他协程感知到之前（释放锁之前，发送 rpc 之前）持久化，这样才能保证原子性
-
-
-
-#### mainLoop和两个计时器
-
-<img src="picture/goWeb与微服务/image-20210726190053173.png" alt="image-20210726190053173" style="zoom:67%;" />
-
-`timerElection()`和`timerHeartbeat()`，定时向通道写入数据：
-
-<img src="picture/goWeb与微服务/timerElection.png" alt="timerElection" style="zoom:67%;" />
-
-<img src="picture/goWeb与微服务/timerHeartbeat.png" alt="timerHeartbeat" style="zoom:67%;" />
-
-#### Leader选举
-
-**请求投票过程：**
-
-```go
-type RequestVoteArgs struct {
-	Term         int
-	CandidateId  int
-	LastLogIndex int
-	LastLogTerm  int
-}
-```
-
-开启选举：
-
-<img src="picture/goWeb与微服务/startElection.png" alt="startElection" style="zoom: 67%;" />
-
-选举结果：
-
-1. 收到大多数选票，切换为`Leader`，然后给其他server发送心跳，告诉他们自己是`current_term_id`的leader，每个RPC消息都要带上term_id以检测过期消息。如果一个server收到RPC消息的term_id比自己的大，就更新自己的current_term_id为消息中的term_id，并且如果当前状态是leader或者candidate时要切换为follower。如果RPC消息的term_id比自己的小，则发送拒绝这个RPC的消息（`GrantVote=false`）并带上自己的term_id
-2. 如果等待选票过程中，收到了别的server的`AppendEntriesRPC`，并且其中的term_id大于自己的current_term_id，说明别的server抢先成为了leader，将自己的状态切换成follower，更新本地的current_term_id
-3. 如果没有选出主，没有任何一个candidate收到了majority的vote。这时每个candidate等待到投票超时时间`RPCTimeout`，将current_term_id加1，发起`RequestVoteRPC`进行新一轮选举，并重置投票超时定时器（定时器会在base time的基础上增加一个额外的随机时间，防止冲突）
-
-
-
-**处理投票的策略：**
-
-```go
-type RequestVoteReply struct {
-	Term        int
-	VoteGranted bool
-}
-```
-
-处理RequestVoteRPC
-
-- Candidate投票只会投给自己
-
-- Follower投票只会投给 term 跟自己一样，且LogEntry至少跟自己一样（>=）
-
-<img src="picture/goWeb与微服务/requestVote.png" alt="requestVote" style="zoom: 67%;" />
-
-
-
-**角色切换：**
-
-<img src="picture/goWeb与微服务/convertTo.png" alt="convertTo" style="zoom: 67%;" />
-
-#### 日志同步
+**日志的同步：**
 
 所有的写请求都是请求到Leader的，Leader将日志加到心跳包里面，发给Follower
 
-Leader选出后，就开始接收客户端的请求。Leader把请求作为日志条目（Log entries）append到它的日志中，然后并行的向其他服务器发起 `AppendEntriesRPC` 复制日志条目。当Leader确认这条日志被复制到大多数服务器上（Follower进行commit），**Leader将这个LogEntry进行`commit`，然后`apply`这条LogEntry到状态机(异步向Follower发起提交请求，Follower进行apply)，向客户端返回执行结果**
+Leader选出后，就开始接收客户端的请求。Leader把请求作为日志条目（Log entries）加入到它的日志中，然后并行的向其他服务器发起 AppendEntries RPC 复制日志条目。当这条日志被复制到大多数服务器上，**Leader将这个请求持久化，并向客户端返回执行结果。然后Leader向Follower发起提交请求，Follower进行持久化。**
 
-- 只有当一条日志是`commited`时，Leader才能将它apply到状态机。Raft保证每条commited的LogEntry已经持久化了并且会被所有的peers执行
+**![raft日志同步](picture/goWeb与微服务/raft日志同步.jpg)**
 
-![raft日志同步](picture/goWeb与微服务/raft日志同步.jpg)**
-
-Leader发生改变的时候，它和其他节点的日志可能不一样，这时候就需要一个机制来保证日志的一致。
-
-Follower会舍弃和Leader不同的日志条目，并按顺序复制Leader的日志条目
+Leader发生改变的时候，会以最小的log index作为起点，所有的follower一起复制新Leader的日志条目
 
 Raft 算法规定 **follower 强制复制 leader 节点的日志**，即 follower 不一致日志都会被 leader 的日志覆盖，最终 follower 和 leader 保持一致。简单的说，从前向后寻找 follower 和 leader 第一个公共 LogIndex 的位置，然后从这个位置开始，follower 强制复制 leader 的日志
 
 ![raft的日志复制](picture/goWeb与微服务/raft的日志复制.jpg)
-
-每个格子代表一条`LogEntry`，格子内的数字代表这个LogEntry是在哪个`Term`产生的。
-
-为了使Leader和Follower的log达成一致，Leader会为每个Follower维护一个`nextIndex`，标识leader给各个follower发送的下一条LogEntry的`logIndex`，**初始化为leader最后一条LogEntry的下一个位置**
-
-Leader给Follower发送`AppendEntriesRPC`消息，带着`prevLogIndex=nextIndex-1, prevLogTerm = rf.getLogByIndex(prevLogIndex).Term`
-
-Follower收到后会判断自己的log中有没有这条LogEntry，如果不存在（或冲突），就回复拒绝，Leader将`nextIndex--`，再**立马重发**（要立马重发，而不是等下一个心跳），直到AppendEntriesRPC消息被接收为止
-
-如果leader送过来的entry与现存entry冲突（相同索引的term不同），则**删除该索引以及之后的所有entry**
-
-如果follower已经有了leader发来的entries（不冲突），那么这些已有的entries一定不能删除！且后面的entries也不能删除！因为可能由于网络原因，follower收到之前过期的AppendEntriesRPC，删掉已有的可能会把leader已经apply的entries删掉。所以**没发生冲突的entries一定要保留，而不是直接用发过来的entries覆盖**
-
-Follower最后还要检查`LeaderCommit`的值，将自己的`commitIndex = min(leaderCommit, index of last new entry)`
-
-- commit是指 leader 收到过半的服务器都复制了该LogEntry，该logEntry就被commit了
-- 如果心跳中，follower更新了commitIndex，就将entry进行apply
-
-
-
-AppendEntriesRPC的两个结构：
-
-```go
-![broadcastHeartbeat](picture/goWeb与微服务/broadcastHeartbeat.png)type AppendEntriesArgs struct {
-	Term         int
-	LeaderId     int
-	PrevLogIndex int
-	PervLogTerm  int
-	Entries      []LogEntry
-	LeaderCommit int
-}
-
-type AppendEntriesReply struct {
-	Term      int
-	Success   bool
-	NextIndex int
-}
-```
-
-**Leader心跳broadcastHeartbeat进行AppendEntries：** 
-
-<img src="picture/goWeb与微服务/broadcastHeartbeat.png" alt="broadcastHeartbeat" style="zoom: 67%;" />
-
-`checkN()`的实现：检查并更新当前可以commit的最大值（半数以上都收到reply.Success的logEntry的最大id），然后**进行commit，再进行`applyEntries()`**
-
-![checkN](picture/goWeb与微服务/checkN.png)
-
-
-
-**Follower进行AppendEntries：**
-
-![appendEntries](picture/goWeb与微服务/appendEntries.png)
 
 
 
