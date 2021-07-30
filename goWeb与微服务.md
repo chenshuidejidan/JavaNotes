@@ -1098,7 +1098,7 @@ Follower最后还要检查`LeaderCommit`的值，将自己的`commitIndex = min(
 AppendEntriesRPC的两个结构：
 
 ```go
-![broadcastHeartbeat](picture/goWeb与微服务/broadcastHeartbeat.png)type AppendEntriesArgs struct {
+type AppendEntriesArgs struct {
 	Term         int
 	LeaderId     int
 	PrevLogIndex int
