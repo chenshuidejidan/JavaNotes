@@ -4027,6 +4027,304 @@ go语言并没有提供在一个goroutine中终止另一个goroutine的方法，
 
 
 
+### 优雅关闭channel
+
+不要从reveiver侧关闭channel（导致发送者panic）
+
+不要在有多个sender的时候关闭channel（同上）
+
+
+
+1. 如果是1个sender：直接sender端关闭
+2. 如果多个sender，1个receiver：增加一个传递关闭信号的channel，receiver通过信号channel下达关闭channel的指令，senders监听到关闭信号后停止发送数据。下面代码中sender也没有明确关闭，因为channel会被gc回收的
+
+```go
+func main() {
+    rand.Seed(time.Now().UnixNano())
+    const Max = 100000
+    const NumSenders = 1000
+    dataCh := make(chan int, 100)
+    stopCh := make(chan struct{})
+    // senders
+    for i := 0; i < NumSenders; i++ {
+        go func() {
+            for {
+                select {
+                case <- stopCh:
+                    return
+                case dataCh <- rand.Intn(Max):
+                }
+            }
+        }()
+    }
+    // the receiver
+    go func() {
+        for value := range dataCh {
+            if value == Max-1 {
+                fmt.Println("send stop signal to senders.")
+                close(stopCh)
+                return
+            }
+            fmt.Println(value)
+        }
+    }()
+    select {
+    case <- time.After(time.Hour):
+    }
+}
+```
+
+
+
+3. 多个sender，多个receiver：如果采用2一样的方案，关闭stopCh也会产生重复关闭，导致panic。因此需要一个中间人。当M个receiver都向它发送dataCh的请求，中间人收到后下达关闭dataCh的指令
+
+```go
+func main() {
+    rand.Seed(time.Now().UnixNano())
+    const Max = 100000
+    const NumReceivers = 10
+    const NumSenders = 1000
+    dataCh := make(chan int, 100)
+    stopCh := make(chan struct{})
+    // It must be a buffered channel.
+    toStop := make(chan string, 1)
+    var stoppedBy string
+    // moderator
+    go func() {
+        stoppedBy = <-toStop
+        close(stopCh)
+    }()
+    // senders
+    for i := 0; i < NumSenders; i++ {
+        go func(id string) {
+            for {
+                value := rand.Intn(Max)
+                if value == 0 {
+                    select {
+                    case toStop <- "sender#" + id:
+                    default:
+                    }
+                    return
+                }
+                select {
+                case <- stopCh:
+                    return
+                case dataCh <- value:
+                }
+            }
+        }(strconv.Itoa(i))
+    }
+    // receivers
+    for i := 0; i < NumReceivers; i++ {
+        go func(id string) {
+            for {
+                select {
+                case <- stopCh:
+                    return
+                case value := <-dataCh:
+                    if value == Max-1 {
+                        select {
+                        case toStop <- "receiver#" + id:
+                        default:
+                        }
+                        return
+                    }
+                    fmt.Println(value)
+                }
+            }
+        }(strconv.Itoa(i))
+    }
+    select {
+    case <- time.After(time.Hour):
+    }
+}
+```
+
+
+
+
+
+### Channel的数据结构
+
+```go
+type hchan struct {
+   qcount   uint           // 元素数量
+   dataqsiz uint           // 底层环形数组的长度
+   buf      unsafe.Pointer // 指向环形数组的指针，只针对有缓冲的channel
+   elemsize uint16	// 元素大小
+   closed   uint32	// 是否关闭
+   elemtype *_type 	// 元素类型
+   sendx    uint   		   // 已发送元素索引
+   recvx    uint   		   // 已接收元素索引
+   recvq    waitq  		   // 等待接收的goroutine队列
+   sendq    waitq  		   // 接待发送的goroutine队列
+   lock mutex		// 保护字段的锁
+}
+
+// waitq 是一个双向链表，sudog实际是goroutine的一个封装
+type waitq struct {
+    first *sudog
+    last  *sudog
+}
+```
+
+例如创建一个容量6的元素类型int的channel，结构如下：
+
+![img](picture/go语言要点/47e89d2a3dd43e867b808a10576c8271.png)
+
+
+
+### channel发送和接收
+
+channel 的发送和接收操作本质上都是 “**值的拷贝**”，无论是从 sender goroutine 的栈到 chan buf，还是从 chan buf 到 receiver goroutine，或者是直接从 sender goroutine 到 receiver goroutine。
+
+```go
+type user struct {
+    name string
+    age int8
+}
+var u = user{name: "Ankur", age: 25}
+var g = &u
+func modifyUser(pu *user) {
+    fmt.Println("modifyUser Received Vaule", pu)
+    pu.name = "Anand"
+}
+func printUser(u <-chan *user) {
+    time.Sleep(2 * time.Second)
+    fmt.Println("printUser goRoutine called", <-u)
+}
+func main() {
+    c := make(chan *user, 5)
+    c <- g
+    fmt.Println(g)
+    // modify g
+    g = &user{name: "Ankur Anand", age: 100}
+    go printUser(c)
+    go modifyUser(g)
+    time.Sleep(5 * time.Second)
+    fmt.Println(g)
+}
+
+
+/*
+&{Ankur 25}
+modifyUser Received Vaule &{Ankur Anand 100}
+printUser goRoutine called &{Ankur 25}
+&{Anand 100}
+*/
+```
+
+一开始构造一个结构体 u，地址是 0x56420，图中地址上方就是它的内容。接着把 `&u` 赋值给指针 `g`，g 的地址是 0x565bb0，它的内容就是一个地址，指向 u。
+
+main 程序里，先把 g 发送到 c，根据 `copy value` 的本质，进入到 chan buf 里的就是 `0x56420`，它是指针 g 的值（不是它指向的内容），所以打印从 channel 接收到的元素时，它就是 `&{Ankur 25}`。因此，这里并不是将指针 g “发送” 到了 channel 里，只是拷贝它的值而已。
+
+![output](picture/go语言要点/ac1440f417da57aa293c28ef1f2b0324.png)
+
+
+
+向channel发送：
+
+- 如果检测到 channel 是nil的，当前 goroutine 会被挂起。
+- 对于不阻塞的发送操作，如果 channel 未关闭并且没有多余的缓冲空间（说明：a. channel 是非缓冲型的，且等待接收队列里没有 goroutine；b. channel 是缓冲型的，但循环数组已经装满了元素）
+
+
+
+
+
+
+
+### channel关闭的过程
+
+```go
+func closechan(c *hchan) {
+    // 关闭一个 nil channel，panic
+    if c == nil {
+        panic(plainError("close of nil channel"))
+    }
+    // 上锁
+    lock(&c.lock)
+    // 如果 channel 已经关闭
+    if c.closed != 0 {
+        unlock(&c.lock)
+        // panic
+        panic(plainError("close of closed channel"))
+    }
+    // …………
+    // 修改关闭状态
+    c.closed = 1
+    var glist *g
+    // 将 channel 所有等待接收队列的里 sudog 释放
+    for {
+        // 从接收队列里出队一个 sudog
+        sg := c.recvq.dequeue()
+        if sg == nil {
+            break
+        }
+        // 如果 elem 不为空，说明此 receiver 未忽略接收数据
+        // 给它赋一个相应类型的零值
+        if sg.elem != nil {
+            typedmemclr(c.elemtype, sg.elem)
+            sg.elem = nil
+        }
+        if sg.releasetime != 0 {
+            sg.releasetime = cputicks()
+        }
+        // 取出 goroutine
+        gp := sg.g
+        gp.param = nil
+        if raceenabled {
+            raceacquireg(gp, unsafe.Pointer(c))
+        }
+        // 相连，形成链表
+        gp.schedlink.set(glist)
+        glist = gp
+    }
+    // 将 channel 等待发送队列里的 sudog 释放
+    // 如果存在，这些 goroutine 将会 panic
+    for {
+        // 从发送队列里出队一个 sudog
+        sg := c.sendq.dequeue()
+        if sg == nil {
+            break
+        }
+        // 发送者会 panic
+        sg.elem = nil
+        if sg.releasetime != 0 {
+            sg.releasetime = cputicks()
+        }
+        gp := sg.g
+        gp.param = nil
+        if raceenabled {
+            raceacquireg(gp, unsafe.Pointer(c))
+        }
+        // 形成链表
+        gp.schedlink.set(glist)
+        glist = gp
+    }
+    // 解锁
+    unlock(&c.lock)
+    // Ready all Gs now that we've dropped the channel lock.
+    // 遍历链表
+    for glist != nil {
+        // 取最后一个
+        gp := glist
+        // 向前走一步，下一个唤醒的 g
+        glist = glist.schedlink.ptr()
+        gp.schedlink = 0
+        // 唤醒相应 goroutine
+        goready(gp, 3)
+    }
+}
+```
+
+close 逻辑比较简单，对于一个 channel，recvq 和 sendq 中分别保存了阻塞的发送者和接收者。关闭 channel 后，对于等待接收者而言，会收到一个相应类型的零值。对于等待发送者，会直接 panic。所以，在不了解 channel 还有没有接收者的情况下，不能贸然关闭 channel。
+
+close 函数先上一把大锁，接着把所有挂在这个 channel 上的 sender 和 receiver 全都连成一个 sudog 链表，再解锁。最后，再将所有的 sudog 全都唤醒。
+
+唤醒之后，该干嘛干嘛。sender 会继续执行 chansend 函数里 goparkunlock 函数之后的代码，很不幸，检测到 channel 已经关闭了，panic。receiver 则比较幸运，进行一些扫尾工作后，返回。这里，selected 返回 true，而返回值 received 则要根据 channel 是否关闭，返回不同的值。如果 channel 关闭，received 为 false，否则为 true。这我们分析的这种情况下，received 返回 false。
+
+
+
 ## 3. goroutine调度
 
 半抢占式：当前goroutine发生阻塞时才会导致调度
@@ -4255,9 +4553,9 @@ Channel涉及到的happens-before规则有4跳，最多，Golang里面channel才
 1. `import package` 的时候，如果 package p 里面执行 `import q` ，那么逻辑顺序上 package q 的 init 函数执行先于 package p 后面执行任何其他代码。
 2. `goroutine创建`：goroutine的创建函数本身 happens before 于 goroutine 内的第一行代码执行
 3. `goroutine销毁`：goroutine 的 exit 事件并不保证先于所有的程序内的其他事件，或者说某个 goroutine exit 的结果并不保证对其他goroutine可见
-4. `channel写入`：像channel写入 happens before 于对应元素的读取操作
-5. `channel关闭`：channel的关闭 happens before 于channel的接收(<-chan)的返回，也就是说channel一定可以接收到关闭前写入的信息
-6. `无缓冲channel`：无缓冲channel的接收操作 happens before 发送操作
+4. `channel写入`：向channel写入 happens before 于对应元素的读取操作，无论有没有缓冲的channel
+5. `channel关闭`：channel的关闭 happens before 于channel的接收(<-chan)的返回，也就是说channel一定是先关闭了，接收者才能收到关闭的通知
+6. `无缓冲channel`：无缓冲channel的接收操作 happens before 发送操作。接收操作没有到来之前，发送操作肯定会被阻塞住，不会完成
 7. `有缓冲channel`：缓冲长度为C的channel，第K个元素的接收先于第K+C个元素的发送
 8. `锁`：针对任意 `sync.Mutex` 和 `sync.RWMutex` 的锁变量 L，第 n 次调用 `L.Unlock()` 逻辑先于（结果可见于）第 m 次调用 `L.Lock()` 操作 （n<m）。也就是下次加锁必须等待上次的锁释放
 9. `读写锁`：针对 `sync.RWMutex` 类型的锁变量 L， `L.Unlock( )` 可见于 `L.Rlock( )` ，第 n 次的 `L.Rlock( )` 先于 第 n+1 次的 `L.Lock()`
