@@ -1,539 +1,4 @@
-# 一、gorm
-
-## 1. quickStart
-
-安装：
-
-```
-go get -u gorm.io/gorm
-go get -u gorm.io/driver/sqlite
-```
-
-连接MySQL数据库：
-
-```go
-import (
-  "gorm.io/driver/mysql"
-  "gorm.io/gorm"
-)
-
-func main() {
-  dsn := "user:pass@tcp(127.0.0.1:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local"
-  db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-}
-```
-
-MySQL驱动提供的高级配置：
-
-```go
-db, err := gorm.Open(mysql.New(mysql.Config{
-  DSN: "gorm:gorm@tcp(127.0.0.1:3306)/gorm?charset=utf8&parseTime=True&loc=Local", // DSN data source name
-  DefaultStringSize: 256, // string 类型字段的默认长度
-  DisableDatetimePrecision: true, // 禁用 datetime 精度，MySQL 5.6 之前的数据库不支持
-  DontSupportRenameIndex: true, // 重命名索引时采用删除并新建的方式，MySQL 5.7 之前的数据库和 MariaDB 不支持重命名索引
-  DontSupportRenameColumn: true, // 用 `change` 重命名列，MySQL 8 之前的数据库和 MariaDB 不支持重命名列
-  SkipInitializeWithVersion: false, // 根据当前 MySQL 版本自动配置
-}), &gorm.Config{})
-```
-
-
-
-## 2. model和表格
-
-```go
-type student struct {
-	gorm.Model        //id, CreatedAt, UpdatedAt,DeletedAt
-	Sid        string `gorm:"index"`
-  Name       string
-	Sex        bool
-  Age        int `gorm:"default:18"`
-}
-
-
-//根据model自动创建表格
-db.AutoMigrate(&student{}) //自动创建表格
-```
-
-
-
-## 3. 增加元素
-
-添加**单个记录**：
-
-```go
-res := db.Create(&student)
-if res.Error != nil || res.ID == 0 {
-  fmt.Errorf("addStudent error!")
-  return false
-}
-```
-
-
-
-根据**Slice添加多条记录**：gorm会生成一个单一的sql语句插入所有的数据，并**回填所有值，钩子函数也会被调用**
-
-```go
-students := []student{{...},{...},...}
-db.Create(&students)
-
-for _, student := students {
-  fmt.Println(student.ID)
-}
-```
-
-
-
-根据**Map创建记录**，map创建的方式不会调用钩子函数，而且不会回填值(传入的不是对象)，gorm.Model的字段也不会被自动填充
-
-```go
-	db.Model(&student{}).Create(map[string]interface{}{
-		"Sid":  "1120110144",
-		"Name": "滴滴44",
-		"Sex":  false,
-		"Age":  20,
-	})
-	db.Model(&student{}).Create([]map[string]interface{}{
-		{"Sid": "1120110155",
-			"Name": "滴滴55",
-			"Sex":  false,
-			"Age":  20,
-		}, {
-			"Sid":  "1120110156",
-			"Name": "滴滴56",
-			"Sex":  false,
-			"Age":  20,
-		},
-	})
-```
-
-
-
-**钩子函数**：可以创建四种Hooks method：`BeforeSave`, `BeforeCreate`, `AfterSave`, `AfterCreate`
-
-```go
-func (s student) BeforeCreate(tx *gorm.DB) (err error) {
-	if s.Age < 10 || s.Age > 30 {
-		return fmt.Errorf("invalid age")
-	}
-	return
-}
-```
-
-**忽略钩子函数：** 使用`SkipHooks` session
-
-```go
-db.Session(&gorm.Session{SkipHooks: true}).Create(&students)
-```
-
-
-
-**关联创建：** 关联创建使得组合对象会被自动创建
-
-**忽略关联创建：** 
-
-- 忽略单个对象  `db.Omit("CreditCard").Create(&student)`
-- 忽略全部关联对象  `db.Omit(clause.Associations).Create(&student)`
-
-
-
-## 4. 删除元素
-
-**删除单个元素**：删除单个元素需要指定主键，否则会触发批量删除
-
-```go
-// email 的 ID 是 `10`
-db.Delete(&email)
-// DELETE from emails where id = 10;
-
-// 带额外条件的删除
-db.Where("name = ?", "jinzhu").Delete(&email)
-// DELETE from emails where id = 10 AND name = "jinzhu";
-```
-
-
-
-**根据主键删除**：
-
-```go
-db.Delete(&User{}, 10)
-// DELETE FROM users WHERE id = 10;
-
-db.Delete(&User{}, "10")
-// DELETE FROM users WHERE id = 10;
-
-db.Delete(&users, []int{1,2,3})
-// DELETE FROM users WHERE id IN (1,2,3);
-```
-
-
-
-**钩子函数**：`BeforeDelete`、`AfterDelete`
-
-
-
-**批量删除**：如果指定的值不包括主键，那么gorm会执行批量删除，删除所有匹配的记录
-
-```go
-db.Where("name like ?", "%滴滴10%").Delete(&student{})
-// DELETE from students where name LIKE "%滴滴10%";
-
-ddb.Delete(&student{}, "name like ?", "%9")
-// DELETE from students where name LIKE "%9";
-```
-
-
-
-**执行原生sql** ：原生sql的删除语句会直接删除记录，而不是像orm一样软删除
-
-```go
-db.Exec("Delete from students WHERE name=?", "滴滴8")
-```
-
-
-
-**软删除**：如果model包含了一个 `gorm.DeletedAt` 字段（`gorm.Model` 已经包含了该字段)，它将自动获得软删除的能力
-
-```go
-// user 的 ID 是 `111`
-db.Delete(&user)
-// UPDATE users SET deleted_at="2013-10-29 10:23" WHERE id = 111;
-```
-
-
-
-**查询软删除的记录：**
-
-```go
-db.Unscoped().Where("age = 20").Find(&users)
-// SELECT * FROM users WHERE age = 20;
-```
-
-
-
-**永久删除：**
-
-```go
-db.Unscoped().Delete(&order)
-// DELETE FROM orders WHERE id=10;
-```
-
-
-
-
-
-## 5. 更新元素
-
-
-
-**更新单列：**
-
-```go
-// 条件更新
-db.Model(&User{}).Where("active = ?", true).Update("name", "hello")
-// UPDATE users SET name='hello', updated_at='2013-11-17 21:34:10' WHERE active=true;
-
-// User 的 ID 是 `111`
-db.Model(&user).Update("name", "hello")
-// UPDATE users SET name='hello', updated_at='2013-11-17 21:34:10' WHERE id=111;
-
-// 根据条件和 model 的值进行更新
-db.Model(&user).Where("active = ?", true).Update("name", "hello")
-// UPDATE users SET name='hello', updated_at='2013-11-17 21:34:10' WHERE id=111 AND active=true;
-```
-
-
-
-**更新多列** : 通过 struct 或者 map 更新
-
-```go
-// 根据 `struct` 更新属性，只会更新非零值的字段
-db.Model(&user).Updates(User{Name: "hello", Age: 18, Active: false})
-// UPDATE users SET name='hello', age=18, updated_at = '2013-11-17 21:34:10' WHERE id = 111;
-
-// 根据 `map` 更新属性
-db.Model(&user).Updates(map[string]interface{}{"name": "hello", "age": 18, "actived": false})
-// UPDATE users SET name='hello', age=18, actived=false, updated_at='2013-11-17 21:34:10' WHERE id=111;
-```
-
-
-
-**更新选定字段**：select，忽略字段omit
-
-```go
-// 只更新name
-db.Model(&user).Select("name").Updates(map[string]interface{}{"name": "hello", "age": 18, "actived": false})
-// UPDATE users SET name='hello' WHERE id=111;
-
-// 除了name以外的都更新
-db.Model(&user).Omit("name").Updates(map[string]interface{}{"name": "hello", "age": 18, "actived": false})
-// UPDATE users SET age=18, actived=false, updated_at='2013-11-17 21:34:10' WHERE id=111;
-
-// Select 和 Struct （可以选中更新零值字段）
-db.Model(&result).Select("Name", "Age").Updates(User{Name: "new_name", Age: 0})
-// UPDATE users SET name='new_name', age=0 WHERE id=111;
-```
-
-
-
-**where批量更新：**
-
-```go
-db.Model(User{}).Where("role = ?", "admin").Updates(User{Name: "hello", Age: 18})
-// UPDATE users SET name='hello', age=18 WHERE role = 'admin;
-```
-
-
-
-**获取更新的记录数**：通过 `RowsAffected` 得到更新的记录数
-
-```go
-result := db.Model(User{}).Where("role = ?", "admin").Updates(User{Name: "hello", Age: 18})
-// UPDATE users SET name='hello', age=18 WHERE role = 'admin;
-
-result.RowsAffected // 更新的记录数
-result.Error        // 更新的错误
-```
-
-
-
-**通过sql表达式更新**
-
-```go
-dulti := 2
-db.Model(&student{}).Where("sex=1").Update("age", gorm.Expr("age * ?", multi))
-
-db.Model(&product).Updates(map[string]interface{}{"price": gorm.Expr("price * ? + ?", 2, 100)})
-// UPDATE "products" SET "price" = price * 2 + 100, "updated_at" = '2013-11-17 21:34:10' WHERE "id" = 3;
-```
-
-
-
-**通过子查询更新**
-
-```go
-db.Table("users as u").Where("name = ?", "jinzhu").Update("company_name", db.Table("companies as c").Select("name").Where("c.id = u.company_id"))
-```
-
-
-
-## 6. 查询元素
-
-**查询单个对象**：`First`、`Take`、`Last`，使用时默认添加了`limit 1`条件
-
-```go
-// 获取第一条记录（主键升序），若没有主键则用第一个字段 
-db.First(&user)
-// SELECT * FROM users ORDER BY id LIMIT 1;
-
-// 获取一条记录，没有指定排序字段
-db.Take(&user)
-// SELECT * FROM users LIMIT 1;
-
-// 获取最后一条记录（主键降序）
-db.Last(&user)
-// SELECT * FROM users ORDER BY id DESC LIMIT 1;
-
-result := db.First(&user)
-result.RowsAffected // 返回找到的记录数
-result.Error        // returns error
-
-// 检查 ErrRecordNotFound 错误
-errors.Is(result.Error, gorm.ErrRecordNotFound)
-```
-
-
-
-**根据主键检索：**
-
-```go
-db.First(&user, 10)
-// SELECT * FROM users WHERE id = 10;
-
-db.First(&user, "10")
-// SELECT * FROM users WHERE id = 10;
-
-db.Find(&users, []int{1,2,3})
-// SELECT * FROM users WHERE id IN (1,2,3);
-```
-
-
-
-**检索全部记录：**
-
-```go
-// 获取全部记录
-result := db.Find(&users)
-// SELECT * FROM users;
-
-result.RowsAffected // 返回找到的记录数，相当于 `len(users)`
-```
-
-
-
-**string条件检索：** 也可以使用struct，map的条件来检索
-
-```go
-// 获取第一条匹配的记录
-db.Where("name = ?", "jinzhu").First(&user)
-// SELECT * FROM users WHERE name = 'jinzhu' ORDER BY id LIMIT 1;
-
-// 获取全部匹配的记录
-db.Where("name <> ?", "jinzhu").Find(&users)
-// SELECT * FROM users WHERE name <> 'jinzhu';
-
-// IN
-db.Where("name IN ?", []string{"jinzhu", "jinzhu 2"}).Find(&users)
-// SELECT * FROM users WHERE name IN ('jinzhu','jinzhu 2');
-
-// LIKE
-db.Where("name LIKE ?", "%jin%").Find(&users)
-// SELECT * FROM users WHERE name LIKE '%jin%';
-
-// AND
-db.Where("name = ? AND age >= ?", "jinzhu", "22").Find(&users)
-// SELECT * FROM users WHERE name = 'jinzhu' AND age >= 22;
-```
-
-
-
-**struct检索会忽略零值：0, '', false, ...** 因为0值就是struct未初始化字段的默认值，防止歧义
-
-```go
-db.Where(&User{Name: "jinzhu", Age: 0}).Find(&users)
-// SELECT * FROM users WHERE name = "jinzhu";
-```
-
-
-
-**直接使用Find, First来inline检索**：
-
-```go
-db.First(&user, "id = ?", "string_primary_key")
-// SELECT * FROM users WHERE id = 'string_primary_key';
-
-// Plain SQL
-db.Find(&user, "name = ?", "jinzhu")
-// SELECT * FROM users WHERE name = "jinzhu";
-
-db.Find(&users, "name <> ? AND age > ?", "jinzhu", 20)
-// SELECT * FROM users WHERE name <> "jinzhu" AND age > 20;
-
-// Struct
-db.Find(&users, User{Age: 20})
-// SELECT * FROM users WHERE age = 20;
-
-// Map
-db.Find(&users, map[string]interface{}{"age": 20})
-// SELECT * FROM users WHERE age = 20;
-```
-
-
-
-**Not条件**
-
-```go
-db.Not([]int64{1,2,3}).First(&user)
-// SELECT * FROM users WHERE id NOT IN (1,2,3) ORDER BY id LIMIT 1;
-```
-
-
-
-**Or条件**
-
-```go
-db.Where("role = ?", "admin").Or("role = ?", "super_admin").Find(&users)
-```
-
-
-
-**选择特定字段**
-
-```go
-db.Select("name", "age").Find(&users)
-// SELECT name, age FROM users;
-
-db.Select([]string{"name", "age"}).Find(&users)
-// SELECT name, age FROM users;
-```
-
-
-
-**Order**
-
-```go
-db.Order("age desc, name").Find(&users)
-// SELECT * FROM users ORDER BY age desc, name;
-```
-
-
-
-**Group, Having**
-
-```go
-db.Model(&User{}).Select("name, sum(age) as total").Group("name").Having("name = ?", "group").Find(&result)
-// SELECT name, sum(age) as total FROM `users` GROUP BY `name` HAVING name = "group"
-```
-
-
-
-**Join**
-
-```go
-db.Model(&User{}).Select("users.name, emails.email").Joins("left join emails on emails.user_id = users.id").Scan(&result{})
-// SELECT users.name, emails.email FROM `users` left join emails on emails.user_id = users.id
-```
-
-
-
-**Scan**：和Find功能类似，但是可以查结果到一个特定的结构体中
-
-```go
-type Result struct {
-  Name string
-  Age  int
-}
-
-var result Result
-db.Table("users").Select("name", "age").Where("name = ?", "Antonio").Scan(&result)
-
-// Raw SQL
-db.Raw("SELECT name, age FROM users WHERE name = ?", "Antonio").Scan(&result)
-```
-
-
-
-**Locking: for update, share mode**
-
-```go
-db.Clauses(clause.Locking{Strength: "UPDATE"}).Find(&users)
-// SELECT * FROM `users` FOR UPDATE
-
-db.Clauses(clause.Locking{
-  Strength: "SHARE",
-  Table: clause.Table{Name: clause.CurrentTable},
-}).Find(&users)
-// SELECT * FROM `users` FOR SHARE OF `users`
-```
-
-
-
-**Count**
-
-```go
-var total int64
-// Count with Distinct
-db.Model(&User{}).Distinct("name").Count(&total)
-// SELECT COUNT(DISTINCT(`name`)) FROM `users`
-
-db.Table("deleted_users").Select("count(distinct(name))").Count(&total)
-// SELECT count(distinct(name)) FROM deleted_users
-```
-
-
-
-
-
-# 二、rpc框架
+# 一、rpc框架
 
 一个函数需要能够被远程调用，需要满足如下五个条件：
 
@@ -562,6 +27,150 @@ func (t *T) MethodName(argType T1, replyType *T2) error
  * 4B  magic code（魔法数）   1B version（版本）   4B full length（消息长度）    1B messageType（消息类型）
  * 1B compress（压缩类型） 1B codec（序列化类型）   4B  requestId（请求的Id）
 ```
+
+
+
+### protobuf编码
+
+#### 1. varint
+
+`varint`方法是一种使用变长方式表示整数的方法，可以使用一个或者多个字节来表示小整数和大整数，数越小，使用的字节数越少
+
+在`varint`表示的字节中，**除了最后一个字节，前面的字节都有一个bit来表示还有字节需要处理**，这个标记叫做most significant bit (msb) set。低位放在前面。
+
+> 例如 ：
+>
+> 1表示为    0000 0001
+>
+> 
+>
+> 300对应的二进制为 100101100 超过7位了，需要两个字节表示，这里varint使用的是小端序
+>
+> 表示为     1010 1100   0000 0010
+
+Protobuf编码的实际上是键值对，message就是一系列的键值对，其中键表明了**字段编号和value类型**，其中后三位表示 wire type ，value的数据类型
+
+#### 2. wire type
+
+protobuf只定义了 6 种 **wire类型**，34都被废弃了，目前只使用0，1，2，5
+
+| Type | Meaning          | Used For                                                 |
+| ---- | ---------------- | -------------------------------------------------------- |
+| 000  | Varint           | int32, int64, uint32, uint64, sint32, sint64, bool, enum |
+| 001  | 64-bit           | fixed64, sfixed64, double                                |
+| 010  | Length-delimited | string, bytes, embedded message, packed repeated fields  |
+| 011  | Start group      | groups（废弃）                                           |
+| 100  | End group        | groups（废弃）                                           |
+| 101  | 32-bit           | fixed32, sfixed32, float                                 |
+
+
+
+#### 3. key的编码方式
+
+key的计算方法：$key=(field\_number << 3) | wire\_type$
+
+对于字段比较少的情况，使用一个字节就可以表示key
+
+<img src="picture/go框架/image-20210803202711288.png" alt="image-20210803202711288" style="zoom: 25%;" />
+
+
+
+value的编码方式比较复杂，要分多种情况：
+
+#### 4. 有符号整数的编码
+
+对于负数，通常会被表示成很大的整数，对于一个很小的负数也会占用很大的空间
+
+protobuf的做法是定义sint32这种类型，采用`zigzag编码`，将所有的数全都映射成无符号整数，然后再采用varint编码，这样绝对值小的数也会有一个比较小的varint编码值
+
+
+
+映射方式：
+
+![zigzag](picture/go框架/zigzag.png)
+
+#### 5. 非varint类型数字的编码
+
+对于double，fixed64的wire_type为1，在解析时告诉解析器，该类型的数据需要一个64位大小的数据块即可
+
+对于float和fixed32的wire_type为5，给32位大小的数据块
+
+都是高位在后，低位在前（小端序）
+
+**说protobuf压缩数据没有到极限，原因就在这里，因为并没有压缩float、double这些浮点类型**
+
+
+
+#### 6. 字符串编码
+
+![string](picture/go框架/string编码.png)
+
+wire_type为2的数据，是一种指定长度的编码方式：`key + length + content`
+
+- **key** 的编码方式就是varint编码的field编码左移三位加上wire_type
+
+- **length** 采用varint方式编码
+
+- **content **就是length指定长度的Bytes（UTF8）
+
+
+
+#### 7. 嵌入式message
+
+例如定义一个嵌套消息：
+
+```protobuf
+message Test1 {
+  required int32 a = 1;
+}
+
+message Test3 {
+  optional Test1 c = 3;
+}
+```
+
+设置字段为整数150，编码后的字节为：
+
+```
+1a 03 08 96 01
+```
+
+
+
+首先对Test1编码：
+
+int32类型是第1个字段，wire_type是0，所以key编码为： 0000 1000 (1<<3|0) = 0x08
+
+value是150=1001 0110，按varint编码，小端序，所以value为：1001 0110 0000 0001 = 0x9601
+
+所以Test1的编码结果是 0x089601
+
+
+
+下面对Test3编码：
+
+嵌入类型是第3个字段，wire_type是010，所以key编码为：0001 1010 = 0x1a
+
+然后对length编码，length显然为3，所以编码为 0x03
+
+
+
+所以最终这条消息的编码为 0x1a03089601
+
+
+
+#### 优缺点
+
+protocol buffers 在序列化方面，与 XML 相比，有诸多优点：
+
+- 更加简单
+- 数据体积小 3- 10 倍
+- 更快的反序列化速度，提高 20 - 100 倍
+- 可以自动化生成更易于编码方式使用的数据访问类
+
+
+
+https://cloud.tencent.com/developer/article/1199069
 
 
 
@@ -779,7 +388,7 @@ servicePath = ZK_REGISTER_ROOT_PATH + "/" + rpcServiceName + inetSocketAddress
 
 
 
-# 三、分布式缓存框架
+# 二、分布式缓存框架
 
 ## 1. 缓存淘汰策略
 
