@@ -861,6 +861,8 @@ fmt.Println((*reflect.StringHeader)(unsafe.Pointer(&s)).Len)
 
 **原生字符串：** 使用一对反引号表示原生字符串，原生字符串里想要使用反引号可以通过拼接普通字符串的形式完成
 
+### 5.2 字符串编码
+
 Utf-8编码：
 
 ```go
@@ -946,7 +948,9 @@ e4 b8 96    // 11100100  10111000 10010110
 
 **Java中char是2字节，所以只能编码到unicode码点的FFFF，即三个字节utf-8编码，四个字节的utf-8编码一个char是装不下的，需要两个char**
 
+**Go的byte类型就是uint8，其他语言的字符实际上是go的rune类型/unicode码点(int32)**
 
+###  5.3 常用包
 
 **字符串和byte切片：bytes、strings、strconv、unicode包**
 
@@ -3617,6 +3621,8 @@ func IsNotExist(err error) bool {
 
 
 
+
+
 # 七、Goroutines和Channels
 
 Go语言中的并发程序可以用两种手段来实现：
@@ -4729,9 +4735,166 @@ Go语言使用reflect包访问程序的反射信息
 
 reflect包提供了两个重要的类型：`Type`和`Value`，任意接口值在反射中都可以理解为由 `reflect.Type` 和 `reflect.Value` 两部分组成。。reflect 包提供了 `reflect.TypeOf` 和 `reflect.ValueOf` 两个函数来获取任意对象的 Value 和 Type
 
-## 1. reflect.Type
 
-函数 reflect.TypeOf 接受任意的 interface{} 类型，并以 `reflect.Type` 形式返回其 **动态类型**：
+
+## 1. unsafe.Pointer
+
+指针类型的转换：
+
+```go
+func main() {
+	var i *int
+	p := 10
+	i = &p
+
+	m := (*float64)(i)
+}
+
+/*
+cannot convert i (type *int) to type *float64
+*/
+```
+
+正常我们进行指针类型转换的时候，不同的类型是不能转换的
+
+unsafe.Pointer是一种特别定义的指针类型，可以包含任意类型变量的地址，是各个指针类型转换的桥梁，上述转换可以通过unsafe.Pointer实现：
+
+```go
+func main() {
+	var i *int
+	p := 10
+	i = &p
+
+	m := (*float64)(unsafe.Pointer(i))
+}
+```
+
+> unsafe.Pointer指针转换的规则：
+>
+> - 安全指针可以显示转换为不安全指针，反之亦然
+>
+> - uintptr值可以显示转换为不安全指针，反之亦然
+
+
+
+## 2. uintptr
+
+uintptr是一个可以容纳任何指针类型的整形，可以进行指针运算
+
+正常go的指针是不支持运算的，所以可以转换成uintptr进行指针运算，然后再转换为对应类型的指针
+
+```go
+type User struct {
+	Name string
+	Age int
+}
+
+func main() {
+	u := new(User)
+	name :=(*string)(unsafe.Pointer(u))
+	*name = "test"
+
+	age := (*int)(unsafe.Pointer(uintptr(unsafe.Pointer(u)) + unsafe.Offsetof(u.Age)))
+	*age = 18
+	fmt.Println(u)
+}
+```
+
+思路：如果对Name和Age赋值，首先要拿到地址，然后对地址的内容进行修改
+
+所以我们可以分别定义一个`string`和`int`的指针，分别指向这个实例的Name和Age字段的地址
+
+u的首地址就是Name的地址，但是u是结构体指针，所以只需要将u转换成*string即可
+
+对于age，我们已经拿到了Name的地址，在此基础上进行偏移即可，也就是`unsafe.Offsetof(u.Age)`的偏移量，但是`Pointer`不能进行指针运算，所以需要将`Pointer`转换成`uintptr`
+
+
+
+## 3. interface{}、eface
+
+`runtime.eface` (empty interface) ： 使用interface{}声明的都是empty interface，由于eface不包含方法，所以结构比较简单.
+
+由于`interface{}`值包含了指向底层数据和类型的两个指针，所以任何类型都可以转换成`interafce{}`
+
+```go
+type eface struct {
+	_type *_type
+	data  unsafe.Pointer
+}
+```
+
+
+
+`runtime._type`是go语言类型的运行时表示，包含了很多类型的元信息：例如类型的大小、哈希、对齐、种类等
+
+```go
+type _type struct {
+	size       uintptr // 存储该type的value需要的空间大小
+	ptrdata    uintptr 
+	hash       uint32 // 类型的hash值，所有的type会存放在hashType表中，以hash为索引，帮助我们快速确定类型是否相等
+	tflag      tflag 
+	align      uint8 // 此类型type的对齐
+	fieldalign uint8 // 这个type的结构体字段的对齐
+	kind       uint8 // 类型编号 定义于runtime/typekind.go
+	equal      func(unsafe.Pointer, unsafe.Pointer) bool  // 用于判断当前类型的多个对象是否相等
+
+	gcdata    *byte
+	str       nameOff // 类型名字的偏移
+	ptrToThis typeOff
+}
+```
+
+
+
+## 4. iface
+
+`runtime.iface`(带函数的interface)：
+
+```go
+type iface struct {
+	tab  *itab			// 接口类型的信息
+	data unsafe.Pointer
+}
+```
+
+`runtime.itab`中存放了接口类型的核心数据，每个itab都占32字节
+
+```go
+type itab struct {
+	inter *interfacetype // interface的类型
+	_type *_type // 同上的type
+	hash  uint32 // 对_type中的hash的拷贝，用于快速判断接口和具体类型能否转换
+	_     [4]byte
+	fun   [1]uintptr //fun在栈上偏移地址，因为fun都是指针，所以长度都是4个字节，找到fun的首地址后，每偏移4个地址便存储一个函数地址
+}
+```
+
+`interfacetype`中存放了接口的相关信息
+
+```go
+type interfacetype struct {
+	typ     _type
+	pkgpath name // 包信息
+	mhdr    []imethod // method slice，这里是排序后的，方便检测 struct是否继承了 interface
+}
+```
+
+`imethod`存放方法相关信息
+
+```go
+type imethod struct {
+	name nameOff // 函数名字的偏移，这里是int32,后面查找的时候会根据这个数值，计算出偏移量， 存放在 firstmoduledata 这个符号表中
+	ityp typeOff // type类型的偏移量，对应interface的_type
+}
+```
+
+
+
+
+
+## 5. reflect.Type
+
+函数 reflect.TypeOf 接受 interface{} 类型，并以 `reflect.Type` 形式返回其 **动态类型**：
 
 ```Go
 t := reflect.TypeOf(3)  // a reflect.Type
@@ -4749,7 +4912,7 @@ fmt.Println(t)          // "int"
 
 
 
-### 1.1 Kind和Name
+### 5.1 Kind和Name
 
 reflect包定义的对象的**反射种类(Kind)**：系统的原生数据类型以及使用type关键字定义的类型
 
@@ -4807,7 +4970,7 @@ var Zero Enum = 0
 
 
 
-### 1.2 指针和Elem
+### 5.2 指针和Elem
 
 对于指针获取反射对象时，可以通过`reflect.Elem()`获取**指针指向的元素的反射对象`reflect.Value`**，相当于于`*`操作
 
@@ -4825,7 +4988,7 @@ var Zero Enum = 0
 
 
 
-### 1.3 反射获取结构体成员类型
+### 5.3 反射获取结构体成员类型
 
 任意值通过 reflect.TypeOf() 获得反射对象信息后，如果它的类型是**结构体**，可以通过反射值对象 reflect.Type 的 `NumField()` 和 `Field()` 方法获得结构体成员的详细信息
 
@@ -4880,7 +5043,7 @@ type StructField struct {
 
 
 
-### 1.4 reflect.Type是一个接口类型
+### 5.4 reflect.Type是一个接口类型
 
 ```go
 type Type interface {
@@ -4897,7 +5060,7 @@ type Type interface {
 
 
 
-## 2. reflect.Value
+## 6. reflect.Value
 
 - reflect.Value是一个**结构体类型**，这个结构体没有对外暴露的字段，但是提供了获取或者写入数据的方法
 
@@ -4933,7 +5096,7 @@ fmt.Printf("%d\n", i)   // "3"
 
 Type 和 Value 都有一个名为 Kind 的方法，它会返回一个常量，表示底层数据的类型，常见值有：Uint、Float64、Slice 等。
 
-### 2.1 获取值
+### 6.1 获取值
 
 ```go
     // 声明整型变量a并赋初值
@@ -4949,7 +5112,7 @@ Type 和 Value 都有一个名为 Kind 的方法，它会返回一个常量，�
 
 
 
-### 2.2 修改数据
+### 6.2 修改数据
 
 Value 类型也有一些类似于 Int、Float 的方法，用来提取底层的数据：
 
@@ -4980,7 +5143,7 @@ Value 类型也有一些类似于 Int、Float 的方法，用来提取底层的�
 
 
 
-### 2.3 修改结构体字段值
+### 6.3 修改结构体字段值
 
 根据反射的第三法则，我们需要有结构体的指针，才可以修改它的字段
 
@@ -5018,7 +5181,7 @@ Value 类型也有一些类似于 Int、Float 的方法，用来提取底层的�
 
 
 
-## 3. 反射三大法则
+## 7. 反射三大法则
 
  Go 语言反射的三大法则：
 
@@ -5028,7 +5191,7 @@ Value 类型也有一些类似于 Int、Float 的方法，用来提取底层的�
 
 
 
-### 3.1 反射可以将接口类型变量转换为反射类型对象
+### 7.1 反射可以将接口类型变量转换为反射类型对象
 
 `reflect.TypeOf()` 和 `reflect.ValueOf()` 可以**将go语言的 interface{} 对象转化为反射对象**，他们的参数类型都是 interface{}。。所以这可能会进行隐式的类型转换。 如果我们认为 **Go 语言的类型** 和 **反射类型**处于两个不同的世界，那么这两个函数就是连接这两个世界的桥梁
 
@@ -5058,7 +5221,7 @@ func main() {
 
 
 
-### 3.2 反射可以将反射类型对象转换为接口类型变量
+### 7.2 反射可以将反射类型对象转换为接口类型变量
 
 反射的第二法则是我们可以从反射对象可以获取 `interface{}` 变量。既然能够将接口类型的变量转换成反射对象，那么一定需要其他方法将反射对象还原成接口类型的变量， `reflect.Value.Interface`就能完成这项工作：
 
@@ -5093,7 +5256,7 @@ v.Interface().(int)   //通过类型断言，将 interface{} 类型转化为了 
 
 
 
-### 3.3 要修改反射类型对象，其值必须是可写的
+### 7.3 要修改反射类型对象，其值必须是可写的
 
 最后一条法则是与值是否可以被更改有关，如果我们想要更新一个 `reflect.Value`，那么它持有的值一定是可以被更新的。可以通过 `CanSet()` 方法检查一个 `reflect.Value` 类型变量的可写性
 
@@ -5126,7 +5289,7 @@ func main() {
 	*px = 3                           // x = 3
 ```
 
-## 3. 类型和值
+## 8. 类型和值
 
 Go 语言的 `interface{}` 类型在语言内部是通过 `reflect.emptyInterface` 结体表示的，其中的 `rtype` 字段用于表示变量的类型，另一个 `word` 字段指向内部封装的数据：
 
@@ -5157,7 +5320,7 @@ func toType(t *rtype) Type {
 
 [Golang反射机制的实现分析——reflect.Type类型名称_方亮的专栏-CSDN博客](https://blog.csdn.net/breaksoftware/article/details/85995767)
 
-## 4. 通过类型信息创建实例
+## 9. 通过类型信息创建实例
 
 当已知 reflect.Type 时，可以动态地创建这个类型的实例，实例的类型为指针。例如 reflect.Type 的类型为 int 时，创建 int 的指针，即`*int`
 
@@ -5176,7 +5339,7 @@ func toType(t *rtype) Type {
 
 
 
-## 5. 通过反射调用函数
+## 10. 通过反射调用函数
 
 需要构建大量的 reflect.Value 和中间变量，检查参数，还要将参数复制到调用函数的参数内存中，调用完毕再将返回值转换为 reflect.Value ，性能非常差
 
@@ -5200,6 +5363,8 @@ func main() {
     fmt.Println(retList[0].Int())
 }
 ```
+
+
 
 
 
@@ -5716,21 +5881,21 @@ Go这门语言抛弃了C/C++中的开发者管理内存的方式：主动申请�
 
 当我们说内存管理的时候，主要是指**堆内存的管理**，栈内存管理不需要程序去操心。
 
-### 2.1 内存分配的基础概念
+### 2.1 内存分配的设计
 
 两种内存分配方式：
 
 #### 1. 线性分配
 
-线性分配非常高效。只需要维护一个指向内存特定位置的指针，当用户程序申请内存时，分配器检查剩余空闲内存，返回分配的内存区域并修改指针位置
+线性分配非常高效。**只需要维护一个指向内存特定位置的指针**，当用户程序申请内存时，分配器检查剩余空闲内存，返回分配的内存区域并修改指针位置（移动指针）
+
+优点：实现简单，执行高效
 
 缺陷：当已分配内存被回收后，单靠单个指针没有办法继续分配前面空闲的区域(红色区域)
 
+适用场景：适合拷贝的垃圾回收算法，像标记整理、标记复制等算法，因为他们会整理对象位置，将空闲内存合并。
+
 ![线性分配](picture/go语言要点/线性分配.png)
-
-
-
-由此衍生的垃圾回收算法解决线性分配的缺陷：**标记压缩，标记复制**等。 通过拷贝的方式整理内存碎片，提升线性分配器的效率和性能
 
 
 
@@ -5738,14 +5903,20 @@ Go这门语言抛弃了C/C++中的开发者管理内存的方式：主动申请�
 
 重用已经被释放的内存，在内部维护一个空闲链表。用户程序申请内存时，一次遍历空闲链表，找到足够大的内存，然后分配给用户，修改链表
 
+![free-list-allocator](picture/go语言要点/275bbc5fa363a80c495b32fbe32ed66b.png)
+
 常见的空闲链表分配方法：
 
 - 首次适应：每次从头开始，找到第一个匹配的就返回
 - 循环首次适应：从上一次结束位置开始遍历
 - 最优适应：遍历整个链表，选择最合适的内存块
-- 隔离适应：将内存分隔成多个链表，每个链表中内存块大小相同，申请内存时先找到满足条件的链表，再从链表中选择合适的内存块
+- **隔离适应(Golang采用的方法)**：将内存分隔成多个链表，每个链表内部的内存块大小相同，链表彼此管理不同大小的内存块，申请内存时先找到满足条件的链表，再从链表中选择合适的内存块
 
-#### 关于Golang内存分配
+优点：可以重用被使用的内存，而且无需整理和复制
+
+缺点：分配内存时需要遍历链表
+
+#### 3. Golang内存分配
 
 Golang的内存分配法和隔离适应算法类似，并且借鉴了TCMalloc的设计实现高速的内存分配。核心理念是**使用多级缓存将对象根据大小分类，按照类别实施不同的分配策略**
 
@@ -5755,7 +5926,9 @@ Golang的内存分配法和隔离适应算法类似，并且借鉴了TCMalloc的
 - 16KB到32KB：小对象
 - 大于32KB：大对象
 
-Go语言也采用了TCMalloc的多级缓存，并且采用的是 `Per-Thread Cache` 模式，每个线程都有独立的缓存
+其中微对象和小对象优先分配到线程缓存中，大对象直接分配到堆中
+
+Go语言也采用了TCMalloc的**多级缓存策略**，并且采用的是 `Per-Thread Cache` 模式，每个线程都有独立的缓存（即每个P）
 
 ![golang内存分配](picture/go语言要点/golang内存分配.png)
 
@@ -5763,17 +5936,44 @@ Go语言也采用了TCMalloc的多级缓存，并且采用的是 `Per-Thread Cac
 
 ### 2.2 Go内存布局
 
-Go1.10以前采用线性内存，管理简单，但是会造成C，Go混用导致程序崩溃，1.11之后，转为了稀疏内存管理。
+#### 内存布局的演变
+
+Go1.10及以前采用线性分配的方式，管理简单，堆内存都是连续的（都是虚拟内存）。
+
+spans区域存储了指向内存管理单元的`runtime.mspan`的指针，每个mspan管理几页的内存空间
+
+bitmap用于标识arena区域中哪些地址保存了对象
+
+area是真正的堆区，运行时8KB为一页，最大为512GB
+
+对于任意地址，通过arena的基地址可以计算出该地址所在页，然后通过spans数组获得管理该页的mspan对象（多个连续的页可以对应一个mspan）。这一系列操作的前提是堆区arena必须是连续的
+
+- 优点：垃圾回收可以根据指针地址判断对象是否在堆中，内存管理简单方便
+- 缺点：需要预留大块的内存空间，可能申请大块内存空间却不使用。如果不预留大块空间，某些场景又会OOM
+
+![heap-before-go-1-10](picture/go语言要点/heap-before-go-1-10.png)
+
+1.11之后，转为了稀疏内存管理（基于隔离适应的空闲链表管理）
+
+- 优点：解决了堆大小的上限
+- 缺点：失去了内存的连续性，使内存管理变得非常复杂，增加了一点垃圾回收的成本
 
 ![Go内存布局](picture/go语言要点/Go内存布局.png)
 
-通过一个 `heapArena` 数组对内存进行管理
+详细的内存布局图如下：
+
+![Go内存管理详解](picture/go语言要点/Go内存管理详解.png)
+
+
+
+#### heapArena
+
+稀疏内存管理主要是通过一个二维的 `runtime.heapArena` 数组对内存进行管理，每个heapArena管理64MB的内存空间，整个堆区最多可以管理256TB内存，比之前的512GB多多了
 
 ```go
 type heapArena struct {
 	// 前两者与线性分配中的bitmap以及spans对应,用于映射内存地址与Span.
 	bitmap [heapArenaBitmapBytes]byte
-	
 	spans [pagesPerArena]*mspan
 	
 	// 一个位图用于表示在当前heapArena管理的Span中,哪些Span是正在被使用的.
@@ -5790,142 +5990,170 @@ type heapArena struct {
 
 
 
-Go内存管理的许多概念在TCMalloc中已经有了，含义是相同的，只是名字有一些变化
-
-![Go内存管理详解](picture/go语言要点/Go内存管理详解.png)
-
-**Page：**
-
-与TCMalloc中的Page相同，x64下1个Page的大小是8KB。上图的最下方，1个浅蓝色的长方形代表1个Page。
-
-**Span：** 
-
-与TCMalloc中的Span相同，**Span是内存管理的基本单位**，代码中为`mspan`，**一组连续的Page组成1个Span**，所以上图一组连续的浅蓝色长方形代表的是一组Page组成的1个Span，另外，1个淡紫色长方形为1个Span
-
-**mcache：** 
-
-mcache与TCMalloc中的ThreadCache类似，**mcache保存的是各种大小的Span，并按Span class分类，小对象直接从mcache分配内存，它起到了缓存的作用，并且可以无锁访问**。
-
-但mcache与ThreadCache也有不同点，TCMalloc中是每个线程1个ThreadCache，Go中是**每个P拥有1个mcache**，因为在Go程序中，当前最多有GOMAXPROCS个线程在用户态运行，所以最多需要GOMAXPROCS个mcache就可以保证各线程对mcache的无锁访问，线程的运行又是与P绑定的，把mcache交给P刚刚好
-
-**mcentral：**
-
-mcentral与TCMalloc中的CentralCache类似，**是所有线程共享的缓存，需要加锁访问**，它按Span class对Span分类，串联成链表，当mcache的某个级别Span的内存被分配光时，它会向mcentral申请1个当前级别的Span。
-
-但mcentral与CentralCache也有不同点，CentralCache是每个级别的Span有1个链表，mcache是**每个级别的Span有2个链表**，这**和mcache申请内存有关**
-
-**mheap：**
-
-mheap与TCMalloc中的PageHeap类似，**它是堆内存的抽象，把从OS申请出的内存页组织成Span，并保存起来**。当mcentral的Span不够用时会向mheap申请，mheap的Span不够用时会向OS申请，向OS的内存申请是按页来的，然后把申请来的内存页生成Span组织起来，同样也是需要加锁访问的。
-
-但mheap与PageHeap也有不同点：**mheap把Span组织成了树结构，而不是链表，并且还是2棵树**，然后把Span分配到heapArena进行管理，它包含地址映射和span是否包含指针等位图，这样做的主要原因是为了更高效的利用内存：分配、回收和再利用
-
-
-
-### 2.3 对象大小转换
-
-1. **object size**：代码里简称`size`，指申请内存的对象大小。
-2. **size class**：代码里简称`class`，它是size的级别，相当于把size归类到一定大小的区间段，比如size[1,8]属于size class 1，size(8,16]属于size class 2
-3. **span class**：指span的级别，但span class的大小与span的大小并没有正比关系。span class主要用来和size class做对应，1个size class对应2个span class，2个span class的span大小相同，只是功能不同，1个用来存放包含指针的对象，一个用来存放不包含指针的对象，不包含指针对象的Span就无需GC扫描了。
-4. **num of page**：代码里简称`npage`，代表Page的数量，其实就是Span包含的页数，用来分配内存。
-
-<img src="picture/go语言要点/Go内存大小转换.png" alt="Go内存大小转换" style="zoom: 50%;" />
-
-![Go内存分配表](picture/go语言要点/Go内存分配表.png)
-
-
-
-size转换是没有固定的计算规律的，直接进行了硬编码，通过查表得到：
-
-`size-class`：从1到66(从8byte到3Kb)，一共有66个，加上未使用的 size class 0，实际上有67个
-
-`span-class`：一个size-class对应两个span-class，所以span-class有134个，从0到133，每个span class指向一个span，也就是说，每个mcache有最多134个 span class 链表
-
-![Size转换](picture/go语言要点/Size转换.png)
-
-### 2.4 Go内存分配
-
-![Go内存对象分类](picture/go语言要点/Go内存对象分类.png)
-
-Go中的内存分类并不像TCMalloc那样分成小、中、大对象，但是它的小对象里又细分了一个Tiny对象，Tiny对象指大小在1Byte到16Byte之间并且不包含指针的对象。小对象和大对象只用大小划定，无其他区分。
-
-小对象是在mcache中分配的，而大对象是直接从mheap分配的
-
-1. TCMalloc 会给每一个线程分配一个属于`线程本地的缓存(Thread Cache, mcache)`，这个本地缓存用于`小对象(小于32K)`的内存分配，**ThreadCache中分配和回收内存无需加锁**(线程私有)。在必要的时候，对象会从Central Heap (mheap) (备注：这个是多个线程分享的，操作的时候需要做加锁、解锁处理)移动到Thread Cache(mcache)
-2. GC会周期性的将存储从 Thread Cache(mcache 默认是2M) 迁移到 Central Heap (mheap)，以便进行垃圾回收
-3. 对于大对象(大于32K)则直接从 Central Heap(mheap)按照页面层次分配方式进行内存分配
-
-
-
-### 2.5 微对象的分配
-
-Go 语言运行时将**小于 16 byte**的对象划分为微对象，它会使用线程缓存上的微分配器提高微对象分配的性能，我们主要使用它来分配**较小的字符串以及逃逸的临时变量**。微分配器可以将多个较小的内存分配请求合入同一个内存块中，只有当内存块中的所有对象都需要被回收时，整片内存才可能被回收。
-
-微分配器管理的对象不可以是指针类型
-
-![微对象的分配](picture/go语言要点/微对象的分配.png)
-
-如上图中,微对象分配器中已经被分配了12B的内存,现在**仅剩下4B空闲**, 如果此时有小于等于4B的对象需要被分配内存,那么这个对象会直接使用tinyoffset之后剩余的空间。如果`大于4B`，就要被算在小对象分配的过程中了
-
-
-
-### 2.6 小对象的分配
-
-#### 1. 为对象寻找span
-
-小对象是大小从**16字节到32768字节的对象**，以及**小于16字节的指针类型对象**
-
-根据小对象的`size`，映射所对应的 `SizeClass`，然后根据 SizeClass 和对象中是否包含指针，计算出SpanClass，获取该SpanClass对应的空闲Span空间
-
-
-
-例如：24Byte不包含指针的对象，对应的 size-class 为 3 ( `(16,32]Byte` )
-
-根据size-class计算span-class
+#### mspan
 
 ```go
-// noscan为true代表对象不包含指针
-func makeSpanClass(sizeclass uint8, noscan bool) spanClass {
-	return spanClass(sizeclass<<1) | spanClass(bool2int(noscan))
+type mspan struct {
+    next *mspan		// 双链表
+    prev *mspan
+    
+	startAddr uintptr // 所管理内存的起始地址
+	npages    uintptr // 所管理内存的页数
+    freeindex uintptr // 页中空闲对象的初始索引(快速分配)
+
+	allocBits  *gcBits  // 内存分配的位图
+	gcmarkBits *gcBits	// gc标志的位图
+	allocCache uint64   // allocBits的补码，用于快速查找内存中未被使用的内存
+	
+    state mSpanStateBox  // span的状态，空闲(堆中)、inuse(被分配了)、manual。。。
+    
+    spanclass spanClass  // mspan的跨度类
 }
 ```
 
-所以对应span-class为： 3<<1 | 1 = 7，所以该对象需要的是 span class 7 指向的 span
+
+
+mspan是内存管理单元（内存管理的基本单位），是双向链表，prev和next分别指向前后的`runtime.mspan`，最后使用runtime.mspanList存储了双向链表的头节点和尾节点，在**线程缓存mcache和中心缓存mcentral中使用**
+
+![mspan-and-linked-list](picture/go语言要点/2020-02-29-15829868066485-mspan-and-linked-list.png)
+
+**一组连续的Page组成1个Span**，一个mspan的大小从8B到到32KB (sizeClass)
+
+`startAddr`和`npages`确定了该mspan结构体管理的多个页所在的内存（一个mspan管理一段连续的页空间）
+
+![img{512x368}](picture/go语言要点/52a93c8e9a2cd2be8d7e970091109c5d.png)
+
+`spanClass`是跨度类，它决定了mspan中存储的对象的大小和个数（按spanClass的大小进行内存对齐）
+
+Go一共有67种跨度类（size class），每个跨度类都对应特定大小的对象(obj size)，以及对应span的大小(span size)，通过计算可以得出该跨度类所对应span可以存储的objects的数量(num of object)，以及浪费的空间
+
+此外还有一个类别为0的跨度类，它能够管理大于32KB的特殊对象（大对象分配的时候使用）
+
+**一个sizeClass对应两个spanClass**，所以spanClass有134个，从0到133，每个span class指向一个span，也就是说，每个mcache有134个mspan链表
+
+> ```go
+> numSpanClasses = _NumSizeClasses << 1
+> _NumSizeClasses = 68
+> ```
+
+![Go内存分配表](picture/go语言要点/Go内存分配表.png)
+
+size转换是没有固定的计算规律的，直接进行了硬编码，通过查表得到：
+
+`size-class`：从1到66(从8B到32KB)，一共有66个，加上未使用的 size class 0，实际上有67个
+
+`span-class`：一个sizeClass对应两个span-class，所以span-class有134个，从0到133，每个span class指向一个span，也就是说，每个mcache有最多134个 span class 链表
+
+![Size转换](picture/go语言要点/Size转换.png)
 
 
 
-#### 2. 从span中分配对象空间
+当用户程序向runtime.mspan申请内存时，它会使用`allocCache`字段**以对象为单位(object size)**在管理的内存中快速查找待分配的空间
 
-Span可以按对象大小切成很多份，这些都可以从映射表上计算出来，以size class 3对应的span为例，span大小是8KB，每个对象实际所占空间为32Byte，这个span就被分成了256块，可以根据span的起始地址计算出每个对象块的内存地址。
+![mspan-and-objects](picture/go语言要点/2020-02-29-15829868066499-mspan-and-objects.png)
 
-<img src="picture/go语言要点/Span内对象.png" alt="Span内对象" style="zoom: 67%;" />
+当mspan管理的内存不足以完成新对象的分配时，runtime会**以页为单位向mheap申请内存**
 
-随着内存的分配，span中的对象内存块，有些被占用，有些未被占用，比如上图，整体代表1个span，蓝色块代表已被占用内存，绿色块代表未被占用内存。
-
-当分配内存时，只要快速找到第一个可用的绿色块，并计算出内存地址即可，如果需要还可以对内存块数据清零。
+![mspan-and-pages](picture/go语言要点/2020-02-29-15829868066492-mspan-and-pages.png)
 
 
 
-#### 3. mcache向mcentral申请span
+#### mcache
 
-当span内所有对应size-class的内存块都被占用时，没有剩余空间可以继续分配对象，这时 **mcache 会向 mcentral 申请1个span**，mcache拿到这个span后继续分配对象
+mcache与TCMalloc中的ThreadCache类似，按spanClass划分，每个线程（P）持有 67 * 2 = 134 个`runtime.mspan`，mcache可以无锁访问，**微对象和小对象(<=32KB)直接从mcache管理的mspan分配内存**。mcache依然是属于堆的一部分，用于动态数据
 
-mcentral和mcache一样，都是0~133这134个span class级别，但每个级别都保存了2个span list，即2个span链表：
+runtime在初始化P时，会调用runtime.allocmcache初始化线程缓存，会在系统栈中使用`runtime.mheap`的线程缓存分配器初始化出一个新的`runtime.mcache`
 
-1. `nonempty`：这个链表里的span，所有span都至少有1个空闲的对象空间。这些span是mcache释放span时加入到该链表的。
-2. `empty`：这个链表里的span，所有的span都不确定里面是否有空闲的对象空间。当一个span交给mcache的时候，就会加入到empty链表。
-
-这2个东西名称一直有点绕，建议直接把empty理解为没有对象空间就好了。
-
-<img src="picture/go语言要点/2019-07-go-mcentral.png" alt="mcentral" style="zoom: 67%;" />
-
-mcache向mcentral要span时，mcentral会先从`nonempty`搜索满足条件的span，如果没有找到再从`emtpy`搜索满足条件的span，然后把找到的span交给mcache。
+`runtime.mcache.refill(spc spanClass)`会为mcache获取一个指定跨度类的mspan，替换掉自己这个跨度类本来的mspan，被替换的mspan不能包含空闲空间，获取的mspan必须至少包含一个空闲空间用于对象分配
 
 
 
-#### 4. mcentral向mheap申请span
+mcache中还有用于分配微对象的字段，专门管理**16B以下的非指针类型的对象**
 
-当mcentral没有满足条件的span时，如`empty`中也没有符合条件的span，则会向mheap申请span
+```go
+type mcache struct {
+    alloc [numSpanClasses]*mspan // 按spanClass分类的mspan，numSpanClasses = _NumSizeClasses << 1 = 67 << 1
+    
+    
+    // 微对象分配相关
+	tiny             uintptr	// 内存的起始地址
+	tinyoffset       uintptr	// 下一个空闲内存的偏移量
+	local_tinyallocs uintptr	// 分配的对象个数
+}
+```
+
+
+
+
+
+#### mcentral
+
+mcentral与TCMalloc中的CentralCache类似，**是所有线程共享的缓存，需要加锁访问**
+
+mspan按自己管理的spanClass跨度类进行归类，由对应的mcentral进行管理，所以也有 134 个 mcentral
+
+```go
+type mcentral struct {
+	spanclass spanClass		// 所管理的mspan的spanClass
+    
+    
+    // Go115之后
+	partial  [2]spanSet		// 有空闲对象的spans：包含扫描过的和未扫描的
+	full     [2]spanSet		// 无空闲对象的spans：包含扫描过的和未扫描的
+    
+    // Go115之前
+    nonempty mSpanList // list of spans with a free object, ie a nonempty free list
+	empty    mSpanList // list of spans with no free objects (or cached in an mcache)
+}
+```
+
+当mcache的某个级别mspan的内存不够分配时，它会向mcentral申请1个对应spanClass的mspan：
+
+- 首先从**有空闲空间的、清扫过的**spanSet中查找可以使用的内存管理单元
+- 然后从**有空闲空间的、未清扫的**spanSet中查找可以使用的内存管理单元
+- 然后从**无空闲空间的、未清扫的**spanSet中获取内存管理单元，并清理他的内存空间
+- 如果以上均失败，则调用`runtime.mcentral.grow`从堆中申请新的内存管理单元，堆根据**npages和sizeClass**为mcentral分配新的mspan
+
+无论哪一步成功，获取到mspan之后，最后都更新mspan中的allocBits和allocCache等字段，让runtime在分配内存时可以快速找到空闲对象
+
+
+
+> Go115之前，mcache是**为mspan维护2个链表**，这**和mcache申请内存有关**
+>
+> - `empty`：empty链表存放的是没有空闲对象的当前sizeclass的mspan，当此处的**mspan被释放时**，会被移动到 `non-empty` 链表
+> - `non-empty`：有空闲对象的链表，当从mcentral申请新的span时，首先从该链表中获取span，然后移入 `empty`链表
+
+
+
+#### mheap
+
+mheap是内存分配的核心结构体，Go语言程序将其作为全局变量存储，堆上初始化的对象都有该结构体统一进行管理
+
+mheap包含了长度为134的`mcentral`的列表，以及管理堆区内存的`arenas`
+
+```go
+type mheap struct {
+    central [numSpanClasses]struct {		// 134个mcentral
+		mcentral mcentral
+		pad      [cpu.CacheLinePadSize - unsafe.Sizeof(mcentral{})%cpu.CacheLinePadSize]byte
+	}
+	arenas [1 << arenaL1Bits]*[1 << arenaL2Bits]*heapArena  // heapArena
+}
+```
+
+每个heapArea管理64MB的内存(64位非windows平台)
+
+mheap与TCMalloc中的PageHeap类似，**它是堆内存的抽象，把从OS申请出的内存页组织成Span，并保存起来**。当mcentral的Span不够用时会向mheap申请，mheap的Span不够用时会向OS申请，向OS的内存申请是按页来的，然后把申请来的内存页按span的sizeclass生成Span组织起来，同样也是需要加锁访问的。
+
+
+
+为了防止内存的大量占用和堆增长，在向OS申请内存页时，要先调用`runtime.mheap.reclaim`方法回收一部分内存，随后通过`mheap.allocSpan`分配mspan：
+
+- 首先**在堆上分配npages数量的内存页**
+- 如果堆上分配npages的内存页失败，才会**向OS申请内存页**(`runtime.mheap.grow`)
+- 然后将这些内存页初始化为`mspan`返回。
+
+
 
 mheap里保存了2棵**二叉排序树**，按span的page数量进行排序：
 
@@ -5936,33 +6164,81 @@ mheap里保存了2棵**二叉排序树**，按span的page数量进行排序：
 
 <img src="picture/go语言要点/2019-07-go-mheap.png" alt="mheap" style="zoom: 67%;" />
 
-mheap中还有arenas，有一组heapArena组成，每一个heapArena都包含了连续的`pagesPerArena`个span，这个主要是为mheap管理span和垃圾回收服务。
-
-mheap本身是一个全局变量，它其中的数据，也都是从OS直接申请来的内存，并不在mheap所管理的那部分内存内
-
-
-
-mcentral需要向mheap提供需要的**内存页数和span class级别**，然后它优先从`free`中搜索可用的span，如果没有找到，会从`scav`中搜索可用的span，如果还没有找到，它会向OS申请内存，再重新搜索2棵树，必然能找到span。如果找到的span比需求的span大，则把span进行分割成2个span，其中1个刚好是需求大小，把剩下的span再加入到`free`中去，然后设置需求span的基本信息，然后交给mcentral
-
-
-
-#### 5. mheap向OS申请内存
-
 当mheap没有足够的内存时，mheap会向OS申请内存，把申请的内存页保存到span，然后把span插入到`free`树 。
 
 在32位系统上，mheap还会预留一部分空间，当mheap没有空间时，先从预留空间申请，如果预留空间内存也没有了，才向OS申请。
 
 
 
-### 2.7 大对象的分配
-
-大对象是指大于32K的对象，直接分配在 mcentral 中
-
-大对象的分配比小对象省事多了，99%的流程与mcentral向mheap申请内存的相同
 
 
+### 2.3 对象大小转换
 
-### 2.8 对象释放
+> ```go
+> numSpanClasses = _NumSizeClasses << 1
+> _NumSizeClasses = 68
+> ```
+>
+> 
+
+<img src="picture/go语言要点/Go内存大小转换.png" alt="Go内存大小转换" style="zoom: 50%;" />
+
+size转换是没有固定的计算规律的，直接进行了硬编码，通过查表得到：
+
+`size-class`：从1到66(从8B到32KB)，一共有66个，加上未使用的 size class 0，实际上有67个
+
+`span-class`：一个sizeClass对应两个span-class，所以span-class有134个，从0到133，每个span class指向一个span，也就是说，每个mcache有最多134个 span class 链表
+
+![Size转换](picture/go语言要点/Size转换.png)
+
+
+
+### 2.4 Go内存分配
+
+![Go内存对象分类](picture/go语言要点/Go内存对象分类.png)
+
+Go中的内存分类并不像TCMalloc那样分成小、中、大对象，但是它的小对象里又细分了一个Tiny对象，Tiny对象指大小在1Byte到16Byte之间并且不包含指针的对象。小对象和大对象只用大小划定，无其他区分。
+
+小对象是在mcache中分配的，而大对象是直接从mheap分配的
+
+#### 微对象的分配
+
+**微对象(<16B，不可以是指针类型)**：直接在微分配器分配，只有16字节的内存块。如图如果分配了12字节，下一个微对象小于4字节才会分配到剩余部分，否则当成小对象分配了
+
+微对象主要是：**小字符串和逃逸的微小对象**（未逃逸直接栈上分配了）
+
+![tiny-allocator](picture/go语言要点/2020-02-29-15829868066543-tiny-allocator.png)
+
+#### 小对象的分配
+
+**小对象(<32KB)**：首先确定对象大小以及跨度类(spanClass)，然后在mspan中进行分配：
+
+<img src="picture/go语言要点/Span内对象.png" alt="Span内对象" style="zoom: 67%;" />
+
+随着内存的分配，span中的对象内存块，有些被占用，有些未被占用，比如上图，整体代表1个span，蓝色块代表已被占用内存，绿色块代表未被占用内存。当分配内存时，只要快速找到第一个可用的绿色块(通过位图)，并计算出内存地址即可，如果需要还可以对内存块数据清零。
+
+分配完之后更新allocCache和freeindex等字段。
+
+
+
+在mspan中分配时，有两个分配方法：`nextFreeFast`和`nextFree`
+
+- `nextFreeFast`会直接在当前mspan中通过allocCache位图查找到空闲位，计算对应地址，进行分配。如果没有找到空闲内存，就要调用nextFree了
+- `nextFree`负责找到新的内存管理单元：调用`refill`去mcentral中为mcache分配新的mspan，然后在进行分配
+
+
+
+#### 大对象的分配
+
+**大对象(>32KB)**：会单独处理，不会从mcache和mcentral中获取mspan，而是直接调用`runtime.mcache.allocLarge`分配大片内存
+
+该方法会计算分配该对象所需要的页数，然后按照8KB的倍数在堆上申请内存，申请时创建一个**跨度类为0的spanClass**，并分配一个mspan管理这个跨度类
+
+
+
+
+
+### 2.5 对象释放
 
 Go使用垃圾回收收集不再使用的span，调用`mspan.scavenge()`把span释放给OS（并非真释放，只是告诉OS这片内存的信息无用了，如果你需要的话，收回去好了），然后交给mheap，mheap对span进行span的合并，把合并后的span加入`scav`树中，等待再分配内存时，由mheap进行内存再分配
 
@@ -6089,7 +6365,7 @@ GO V1.5 采用的方法 (GO V1.3是普通标记清除，整个过程STW，效率
 
 >  破坏条件1（ 赋值器修改对象图，导致某一黑色对象引用白色对象；）因为在对象A 引用对象B 的时候，B 对象被标记为灰色
 
-
+![dijkstra-insert-write-barrier](picture/go语言要点/2020-03-16-15843705141840-dijkstra-insert-write-barrier.png)
 
 黑色对象的内存槽有两种位置, `栈`和`堆`. 栈空间的特点是容量小,但是**要求响应速度快**,因为函数调用弹出频繁使用, 所以“插入屏障”机制,在**栈空间的对象操作中不使用**. 而仅仅使用在堆空间对象的操作中
 
@@ -6097,8 +6373,8 @@ GO V1.5 采用的方法 (GO V1.3是普通标记清除，整个过程STW，效率
 
 Dijkstra 插入屏障的好处在于可以立刻开始并发标记。但存在两个缺点：
 
-- 由于 Dijkstra 插入屏障的“保守”，在一次回收过程中可能会残留一部分对象没有回收成功，只有在下一个回收过程中才会被回收；
-- 在标记阶段中，每次进行**指针赋值操作**时，都需要**引入写屏障**，这无疑会增加大量性能开销；为了避免造成性能问题，Go 团队在最终实现时，**没有为栈上的指针的写操作启用写屏障**，而是当发生栈上的写操作时，将栈标记为灰色，但此举产生了**灰色赋值器**，将会需要在标记终止阶段 STW 时对这些栈进行**重新扫描**。
+- 由于 Dijkstra 插入屏障的“**保守**”（将可能存活的对象都标记为了灰色，例如上图B对象最后没有被回收），在一次回收过程中可能会残留一部分对象没有回收成功，只有在下一个回收过程中才会被回收；
+- 在标记阶段中，每次进行**指针赋值操作**时，都需要**引入写屏障**，这无疑会增加大量性能开销；为了避免造成性能问题，Go 团队在最终实现时，**没有为栈上的指针的写操作启用写屏障**，而是当发生栈上的写操作时，将栈标记为灰色，但此举产生了**灰色赋值器**，将会**需要在标记终止阶段 STW** 时对这些栈进行**重新扫描**。
 
 ![插入屏障](picture/go语言要点/插入屏障.png)
 
@@ -6113,6 +6389,12 @@ Dijkstra 插入屏障的好处在于可以立刻开始并发标记。但存在�
 **满足**: **弱三色不变式**. (保护灰色对象到白色对象的路径不会断)
 
 > 破坏条件2（从灰色对象出发，到达白色对象的、未经访问过的路径被赋值器破坏），因为被删除对象，如果自身是灰色或者白色，则被标记为灰色
+
+例如A->B的引用被删除触发删除写屏障，B变为灰色（本来就是灰色）
+
+B->C的引用被删除触发删除写屏障，C由白色变为了灰色
+
+![yuasa-delete-write-barrier](picture/go语言要点/2021-01-02-16095599123266-yuasa-delete-write-barrier.png)
 
 **特点**：标记结束不需要STW，但是回收精度低(**一个对象即使被删除了最后一个指向它的指针也依旧可以活过这一轮，在下一轮GC中才会被清理掉**)，容易产生“冗余”扫描；
 
@@ -6142,7 +6424,7 @@ Golang 中的混合屏障结合了删除写屏障和插入写屏障的优点，*
 
 另外注意：混合写屏障是GC的一种屏障机制，所以只是当程序执行GC的时候才会触发这种机制
 
-**GC开始：** 扫描栈区，将栈区可达的对象全部标记为**黑色**
+**GC开始：** 扫描栈区，将栈区可达的对象全部标记为**黑色**（STW全部标记）
 
 ![混合屏障-准备](picture/go语言要点/混合屏障-准备.png)
 
@@ -6172,47 +6454,72 @@ Golang 中的混合屏障结合了删除写屏障和插入写屏障的优点，*
 
 ![混合屏障-场景四](picture/go语言要点/混合屏障-场景四.png)
 
-### 3.2 GoGC-标记清除算法
+### 3.4 GoGC-标记清除算法
 
 1.5版本及之后的GC主要分四个阶段，其中标记和清理都是并发执行的，但是标记前后需要STW来做**GC的准备工作和栈的rescan**
 
 
 
-| 阶段             | 说明                                                       | 赋值器状态 |
-| ---------------- | ---------------------------------------------------------- | ---------- |
-| SweepTermination | 清扫终止阶段，为下一个阶段的并发标记做准备工作，启动写屏障 | STW        |
-| Mark             | 扫描标记阶段，与赋值器并发执行，写屏障开启                 | 并发       |
-| MarkTermination  | 标记终止阶段，保证一个周期内标记任务完成，停止写屏障       | STW        |
-| GCoff            | 内存清扫阶段，将需要回收的内存归还到堆中，写屏障关闭       | 并发       |
-| GCoff            | 内存归还阶段，将过多的内存归还给操作系统，写屏障关闭       | 并发       |
+| 阶段             | 说明                                                         | 赋值器状态 |
+| ---------------- | ------------------------------------------------------------ | ---------- |
+| SweepTermination | 清扫终止阶段，进入安全点，处理上一次GC还未被清理的内存管理单元 | STW        |
+| Mark             | 扫描标记阶段，写屏障开启，根对象入队，恢复程序执行，开始扫描(扫描G栈时会暂停当前G的P) | 并发       |
+| MarkTermination  | 标记终止阶段，关闭辅助标记的用户程序，清理处理器上的线程缓存 | STW        |
+| GCoff            | 内存清扫阶段，开始清理，关闭写屏障，恢复用户程序的执行，后台并发清理所有内存管理单元 | 并发       |
 
 **GC触发：** 
 
-- `GOGC threshold`: 当前分配的内存达到一定**阈值**时触发，这个阈值在每次GC过后都会根据堆内存的增长情况和CPU占用率来调整（目前唯一**可以调整的参数GCPercent, 以后可能会有MaxHeap**）
-
-- `runtime.forcegcperiod`: 当一定时间没有执行过GC就强制触发GC（2分钟）
-
+- `后台触发`: 系统会构建一个runtime.gcTrigger并检查垃圾收集的触发条件是否满足，满足就会将垃圾收集协程加入全局队列等待调度
 - `runtime.GC()`: 手动触发
+- `申请内存`：runtime.mallocgc，微对象、小对象、大对象的创建都可能会触发新的垃圾收集循环
+  - `nextFree()`从mcentral或者mheap获取新的mspan时可能会触发垃圾收集
+  - 分配大对象的时候，一定会尝试触发垃圾收集
+
+尝试GC的时候会进行test判断，满足条件才gc
+
+```go
+// 尝试垃圾回收
+func (t gcTrigger) test() bool {
+	if !memstats.enablegc || panicking != 0 || gcphase != _GCoff {
+		return false
+	}
+	switch t.kind {
+	case gcTriggerHeap:
+		return memstats.heap_live >= memstats.gc_trigger	// 堆空间超过设定的阈值
+	case gcTriggerTime:
+		if gcpercent < 0 {
+			return false
+		}
+		lastgc := int64(atomic.Load64(&memstats.last_gc_nanotime))
+		return lastgc != 0 && t.now-lastgc > forcegcperiod	// 超过2分钟没有垃圾回收了
+	case gcTriggerCycle:
+		return int32(t.n-work.cycles) > 0		// 没有开启垃圾收集则触发新的循环
+	}
+	return true
+}
+```
+
+
+
+
 
 #### 1. SweepTermination(STW)
 
-栈标记阶段
-
-所有P都启用写屏障后开始扫描(STW)，为每个P创建新的G用来GC调度。
-
-> 每个P都有一个 `mcache` ，每个 `mcache` 都有1个`Span`用来存放 `TinyObject`，TinyObject 都是**不包含指针的对象**，所以这些对象可以直接标记为**黑色**，然后关闭 STW
-
-每个P都有1个进行扫描标记的goroutine，可以进行并发标记，关闭STW后，这些goroutine就变成了可运行状态，接受 go scheduler 的调度，这些 goroutine被调度来进行栈扫描、标记、标记结束
-
-> 栈扫描阶段就是把前面搜集的黑色Root对象的引用标记为灰色，加入 gcWork队列(gcWork队列保存了灰色对象)，每个灰色对象都是一个Work
+1. **暂停程序**，所有的处理器在这时会进入安全点（Safe point）；
+2. 如果当前垃圾收集循环是强制触发的，我们还需要处理还未被清理的内存管理单元；
 
 #### 2. Mark(并发标记)
 
-标记阶段是一个循环，不断从 gcWork 队列中取出 Work，将它所指向的所有对象标记为灰色，将它标记为黑色。循环直到队列为空
+1. 将状态切换至 `_GCmark`、开启写屏障、用户程序协助（Mutator Assists）并将根对象入队；
+2. 恢复执行程序，标记进程和用于协助的用户程序会开始并发标记内存中的对象，写屏障会将被覆盖的指针和新指针都标记成灰色，而所有新创建的对象都会被直接标记成黑色；
+3. 开始扫描根对象，包括所有 Goroutine 的栈、全局对象以及不在堆中的运行时数据结构，扫描 Goroutine 栈期间会暂停当前处理器；
+4. 依次处理灰色队列中的对象，将对象标记成黑色并将它们指向的对象标记成灰色；
+5. 使用分布式的终止算法检查剩余的工作，发现标记阶段完成后进入标记终止阶段；
 
-#### 3. MarkTermination
+#### 3. MarkTermination(STW)
 
-标记终止阶段，再次开启 STW，不同版本处理方式不同
+1. **暂停程序**、将状态切换至 `_GCmarktermination` 并关闭辅助标记的用户程序；
+2. 清理处理器上的线程缓存；
 
 Go1.7是 Dijkstra写屏障(插入写屏障)，只监控堆中指针变动，所以需要**再次扫描全局变量和栈**
 
@@ -6220,13 +6527,25 @@ Go1.8之后是混合写屏障，也不监控栈上指针变动，但是这个策
 
 
 
-标记结束阶段最后会关闭写屏障，然后关闭STW，唤醒负责垃圾清扫的 goroutine
-
 #### 4. GCoff
+
+1. 将状态切换至 `_GCoff` 开始清理阶段，初始化清理状态并关闭写屏障；
+2. 恢复用户程序，所有新创建的对象会标记成白色；
+3. 后台并发清理所有的内存管理单元，当 Goroutine 申请新的内存管理单元时就会触发清理；
 
 负责清扫垃圾的goroutine 是 **应用程序启动后就立即创建的一个后台goroutine**，并且立刻进入睡眠，等待被唤醒后执行垃圾清理，把白色对象挨个清理掉，清扫goroutine 和 应用 goroutine 是并发进行的，清扫完成后再次进入睡眠状态，等待下次被唤醒
 
 最后执行一些数据统计和状态修改的工作，设置好下一轮GC的阈值，把GC状态设置为 off
+
+
+
+### 3.5 内存的清理
+
+垃圾收集的清理包含**对象回收器**和**内存单元回收器**
+
+- 对象回收器在mspan中查找并释放未被标记的对象（白色对象），如果所有对象都没有被标记，那么整个单元都会被直接回收
+
+- 内存单元回收器会在内存中查找所有对象都未被标记的mspan
 
 
 
