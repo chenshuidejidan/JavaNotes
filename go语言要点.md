@@ -1916,6 +1916,8 @@ type bmap struct {
 
 ![hashmap-mapaccess](picture/go语言要点/hashmap-mapaccess.png)
 
+<img src="picture/go语言要点/f39e10e1474fda593cbca86eb0c517e2.png" alt="img" style="zoom: 33%;" />
+
 ```go
 func mapaccess1(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
 	//...
@@ -1925,16 +1927,18 @@ func mapaccess1(t *maptype, h *hmap, key unsafe.Pointer) unsafe.Pointer {
 	b := (*bmap)(add(h.buckets, (hash&m)*uintptr(t.bucketsize)))
     //存在旧桶，说明在扩容，去旧桶找
 	if c := h.oldbuckets; c != nil {
+        // 如果不是同size扩容，说明新 bucket 是原来的2倍
 		if !h.sameSizeGrow() {
-			// There used to be half as many buckets; mask down one more power of two.
 			m >>= 1
 		}
+        // key在老map中的 bucket 位置
 		oldb := (*bmap)(add(c, (hash&m)*uintptr(t.bucketsize)))
+        // 如果老的bucket还没有搬迁到新bucket，那么就直接在老的桶找
 		if !evacuated(oldb) {
 			b = oldb
 		}
 	}
-	top := tophash(hash)
+	top := tophash(hash)	// 计算tophash用于加速
 bucketloop:
     //对bmap中的key遍历，如果有溢出桶也要遍历
 	for ; b != nil; b = b.overflow(t) {
@@ -1946,23 +1950,73 @@ bucketloop:
 				}
 				continue
 			}
-            // 根据key的大小，找到下一个key的地址
+            // 根据key的大小，定位key的位置
 			k := add(unsafe.Pointer(b), dataOffset+i*uintptr(t.keysize))
-			if t.indirectkey() {
+			// key是指针，解引用
+            if t.indirectkey() {
 				k = *((*unsafe.Pointer)(k))
 			}
+            // key相等
 			if t.key.equal(key, k) {
-				e := add(unsafe.Pointer(b), dataOffset+bucketCnt*uintptr(t.keysize)+i*uintptr(t.elemsize))
+				// 定位到value，如果value是指针，也要解引用
+                e := add(unsafe.Pointer(b), dataOffset+bucketCnt*uintptr(t.keysize)+i*uintptr(t.elemsize))
 				if t.indirectelem() {
 					e = *((*unsafe.Pointer)(e))
 				}
+                // 返回value的指针
 				return e
 			}
 		}
 	}
+	// 如果没有找到，返回key相应的零值，不会返回nil！！！
 	return unsafe.Pointer(&zeroVal[0])
 }
 ```
+
+
+
+**判断bucket是否搬迁：**
+
+```go
+// 空的 cell，也是初始时 bucket 的状态
+empty          = 0
+// 空的 cell，表示 cell 已经被迁移到新的 bucket
+evacuatedEmpty = 1
+// key,value 已经搬迁完毕，但是 key 都在新 bucket 前半部分，
+// 后面扩容部分会再讲到。
+evacuatedX     = 2
+// 同上，key 在后半部分
+evacuatedY     = 3
+// tophash 的最小正常值
+minTopHash     = 4
+
+func evacuated(b *bmap) bool {
+    h := b.tophash[0]
+    return h > empty && h < minTopHash
+}
+```
+
+判断是否在0-4之间。。不在就说明已经全部搬迁到了新的bucket
+
+
+
+### 遍历
+
+每次遍历都会生成一个随机数作为开始的bucket，所以每次遍历的结果都是不同的！
+
+```go
+// 生成随机数 r
+r := uintptr(fastrand())
+if h.B > 31-bucketCntBits {
+    r += uintptr(fastrand()) << 31
+}
+// 从哪个 bucket 开始遍历
+it.startBucket = r & (uintptr(1)<<h.B - 1)
+// 从 bucket 的哪个 cell 开始遍历
+it.offset = uint8(r >> h.B & (bucketCnt - 1))
+```
+
+
 
 
 
@@ -1984,17 +2038,24 @@ func hashGrow(t *maptype, h *hmap) {
 	bigger := uint8(1)
     // 如果装载因子没有超过6.5，进行等量扩容
 	if !overLoadFactor(h.count+1, h.B) {
-		bigger = 0
+		// 进行等量的内存扩容，所以 B 不变
+        bigger = 0
 		h.flags |= sameSizeGrow
 	}
+    // 将老 buckets 挂到 buckets 上
 	oldbuckets := h.buckets
+    // 申请新的 buckets 空间
 	newbuckets, nextOverflow := makeBucketArray(t, h.B+bigger, nil)
-
+	
+    // 提交 grow 的动作
 	h.B += bigger
 	h.flags = flags
 	h.oldbuckets = oldbuckets
 	h.buckets = newbuckets
+
+    // 搬迁进度为 0
 	h.nevacuate = 0
+    // overflow buckets 数为 0
 	h.noverflow = 0
 
 	h.extra.oldoverflow = h.extra.overflow
@@ -2002,6 +2063,27 @@ func hashGrow(t *maptype, h *hmap) {
 	h.extra.nextOverflow = nextOverflow
 }
 ```
+
+`hashGrow`并没有真正的搬迁，指示分配好了新的bucket。真正搬迁的操作是`growWork()`，调用这个操作是在`mapassign和mapdelete`函数中，即 插入、修改、删除key的时候会尝试搬迁bucket。检查oldbuckets是否搬迁完毕，没搬迁完就搬迁
+
+```go
+func growWork(t *maptype, h *hmap, bucket uintptr) {
+    // 确认搬迁老的 bucket 对应正在使用的 bucket，则搬迁这个桶
+    evacuate(t, h, bucket&h.oldbucketmask())
+    
+    // 再搬迁一个 bucket，以加快搬迁进程
+    if h.growing() {
+        evacuate(t, h, h.nevacuate)
+    }
+}
+
+// oldbuckets不为空，说明还没有搬迁完毕
+func (h *hmap) growing() bool {
+    return h.oldbuckets != nil
+}
+```
+
+
 
 哈希在扩容的过程中会通过 [`runtime.makeBucketArray`](https://draveness.me/golang/tree/runtime.makeBucketArray) 创建一组新桶和预创建的溢出桶，随后将原有的桶数组设置到 `oldbuckets` 上并将新的空桶设置到 `buckets` 上，溢出桶也使用了相同的逻辑更新，下图展示了触发扩容后的哈希：
 
@@ -2019,6 +2101,27 @@ func hashGrow(t *maptype, h *hmap) {
 
 
 
+**扩容的触发：**
+
+在向 map 插入新 key 的时候，会进行条件检测，符合下面这 2 个条件，就会触发扩容：
+
+1. 装载因子超过阈值，源码里定义的阈值是 6.5。
+2. overflow 的 bucket 数量过多：当 B 小于 15，也就是 bucket 总数 2^B 小于 2^15 时，如果 overflow 的 bucket 数量超过 2^B，即**溢出桶的数量超过了正常桶的数量**；当 B >= 15，也就是 bucket 总数 2^B 大于等于 2^15，如果 overflow 的 bucket 数量超过 2^15。
+
+对于1的情况，是由于元素过多，所以成倍扩容
+
+对于2的情况，是由于分布不均匀，所以等量扩容（例如插入map的key哈希几乎都一样，落到相同的bucket，产生很多的溢出桶，查找效率接近O(n)了）
+
+
+
+### 无法对map的k/v取地址
+
+因为map会涉及扩容，key的value的地址都是会变化的，所以取地址不能通过编译
+
+即使使用其他方式，例如unsafe.Pointer获取到了key或value的地址，也不能长期持有，因为一旦触发扩容，key和value的位置就会变化，之气那保存的地址也就失效了
+
+
+
 ### 删除
 
 删除和写入逻辑类似，如果删除期间遇到了哈希表扩容，就会分流桶中元素，分流结束之后会找到桶中的目标元素完成键值对的删除操作
@@ -2026,17 +2129,19 @@ func hashGrow(t *maptype, h *hmap) {
 ```go
 func mapdelete(t *maptype, h *hmap, key unsafe.Pointer) {
 	// ...
+    
+    // 检查是否有并发操作，有并发写直接panic
 	if h.flags&hashWriting != 0 {
 		throw("concurrent map writes")
 	}
-
 	hash := t.hasher(key, uintptr(h.hash0))
-
+	
+    // 设置写标志
 	h.flags ^= hashWriting
 
 	bucket := hash & bucketMask(h.B)
     
-    // 在扩容，
+    // 在扩容，触发一次迁移操作
 	if h.growing() {
 		growWork(t, h, bucket)
 	}
@@ -2060,6 +2165,8 @@ search:
 			if !t.key.equal(key, k2) {
 				continue
 			}
+            
+            // 如果key是指针，置为nil，如果是非指针，置为零值
 			// Only clear key if there are pointers in it.
 			if t.indirectkey() {
 				*(*unsafe.Pointer)(k) = nil
@@ -2067,7 +2174,9 @@ search:
 				memclrHasPointers(k, t.key.size)
 			}
 			e := add(unsafe.Pointer(b), dataOffset+bucketCnt*uintptr(t.keysize)+i*uintptr(t.elemsize))
-			if t.indirectelem() {
+			
+            // 如果value是指针，置为nil，如果是非指针，置为零值
+            if t.indirectelem() {
 				*(*unsafe.Pointer)(e) = nil
 			} else if t.elem.ptrdata != 0 {
 				memclrHasPointers(e, t.elem.size)
@@ -2086,6 +2195,70 @@ search:
 }
 
 ```
+
+
+
+### 非线程安全
+
+map不是线程安全的，一旦发现并发写，直接panic
+
+写操作有个标志位，一旦发现标志位被设置了，直接panic。赋值和删除操作在检测完写标志位是复位之后，先将写标志位置位，之后才会进行写操作
+
+```go
+	if h.flags&hashWriting != 0 {
+		throw("concurrent map writes")
+	}
+
+	// Set hashWriting after calling t.hasher, since t.hasher may panic,
+	// in which case we have not actually done a write.
+	h.flags ^= hashWriting
+```
+
+
+
+即使是不相同的key也是不能并发写的！
+
+```go
+func main() {
+	m := make(map[int]int)
+	go func() {
+		for i := 0; i < 100; i++ {
+			m[i] = i
+		}
+	}()
+	for i := 100; i < 200; i++ {
+		m[i] = i
+	}
+	fmt.Println(m)
+}
+
+/*
+fatal error: concurrent map writes
+*/
+```
+
+
+
+甚至读和写也会panic：
+
+```go
+func main() {
+	m := make(map[int]int)
+	go func() {
+		for i := 0; i < 100; i++ {
+			m[i] = i
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		fmt.Println(m)
+	}
+}
+/*
+fatal error: concurrent map iteration and map write
+*/
+```
+
+
 
 
 
