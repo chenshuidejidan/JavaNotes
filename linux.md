@@ -1377,3 +1377,22 @@ yum是一个Shell前端软件包管理器，基于RPM包管理，从指定的服
 |yum update [name]|升级所有软件包，指定了name则升级指定的软件包|
 
 
+
+# 常问面试题
+
+## 1. 查看进程的所有线程
+
+首先通过 `ps -ef | grep "process_name" | grep -v "grep"` 查找进程的pid
+
+```shell
+ps -eLf | grep <process_name>   # e显示全部进程，L显示线程，f全格式输出
+pstree -p <pid>      #显示进程树，不加pid显示所有
+top -Hp <pid>		#实时显示，H表示显示线程
+top -Hp <pid> -n 1	#显示快照（只显示一行，就是一次）
+ps -Tp <pid>		#T显示线程
+```
+
+
+
+
+

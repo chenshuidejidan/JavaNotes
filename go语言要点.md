@@ -3229,9 +3229,11 @@ func (p Point) Distance(q Point) float64 {
 
 ## 1. 方法的指针接收者和值接收者
 
-1. **不管是指针接收者还是值接收者实现了一个接口的方法，都可以通过该类型的值和指针调用接口的方法**，go语言会进行自动的类型转换
+1. **不管是指针接收者还是值接收者实现了一个接口的方法，都可以通过该类型的值和指针调用接口的方法**。go语言会进行自动的类型转换，这实际上是语法糖起作用的。
 2. **如果使用指针接收者来实现一个接口，那么只有该类型的指针才能实现对应接口（is interface a）。**
 3. **如果使用值接收者来实现一个接口，那么该类型的值和指针都实现了对应接口。**
+
+实现了值接收者的方法，相当于自动实现了指针接收者的方法；而实现了指针接收者的方法是不会自动实现值接收者的方法的。
 
 也就是说：值类型的方法集只包括使用值接收者实现的方法。而指针类型的方法集包含值和指针接收者实现的方法
 
@@ -3377,13 +3379,13 @@ func main() {
 
 
 
-## 4. 方法操作的是副本
+## 4. 方法操作的是副本！
 
 其实就是方法的第一个参数是结构体的对象或者对象的指针
 
 所以就是值传递的
 
-**要修改对象的属性，方法的接收者应该是指针** （**只需要接收者是指针即可，不需要调用者是指针**，就算调用者是对象，也会进行隐式转换，转换为指针）
+**要修改对象的属性，方法的接收者应该是指针** （***只需要接收者是指针即可，不需要调用者是指针***，就算调用者是对象，也会进行隐式转换，转换为指针）
 
 ```go
 func main() {
@@ -3392,11 +3394,17 @@ func main() {
 		age:  10,
 	}
 	p.addAge()
+	fmt.Printf("%v\n", p)   //{xiaoming 10}
+    p.addAgePointer()
 	fmt.Printf("%v\n", p)   //{xiaoming 11}
 }
 
-func (p *person) addAge() {
+func (p *person) addAgePointer() {
 	p.age = p.age + 1
+}
+
+func (p person) addAge() {
+    p.age = p.age + 1
 }
 ```
 
@@ -3404,7 +3412,7 @@ func (p *person) addAge() {
 
 
 
-# 六、接口
+# 六、接口简介
 
 
 
@@ -4896,7 +4904,7 @@ ok      github.com/sausheong/gwp/Chapter_8_Testing_Web_Applications/unit_testing
 
 
 
-# 十、反射
+# 十、接口和反射
 
 程序在编译时，变量被转换为内存地址，变量名不会被编译器写入到可执行部分。在运行程序时，程序无法获取自身的信息
 
@@ -4985,6 +4993,8 @@ u的首地址就是Name的地址，但是u是结构体指针，所以只需要�
 
 ## 3. interface{}、eface
 
+<img src="picture/go语言要点/61f23b6970d518a7bd3c5aa2a55c6444.png" alt="eface 结构体全景" style="zoom:50%;" />
+
 `runtime.eface` (empty interface) ： 使用interface{}声明的都是empty interface，由于eface不包含方法，所以结构比较简单.
 
 由于`interface{}`值包含了指向底层数据和类型的两个指针，所以任何类型都可以转换成`interafce{}`
@@ -5019,7 +5029,17 @@ type _type struct {
 
 
 
-## 4. iface
+## 4. iface和接口转换
+
+### iface
+
+<img src="picture/go语言要点/724f1808f70187aa1fcbbf82e497e828.png" alt="iface 结构体全景" style="zoom:67%;" />
+
+tab是接口表指针，指向类型信息，也就是接口的**动态类型**
+
+data是数据指针，指向具体数据，也就是接口的**动态值**
+
+
 
 `runtime.iface`(带函数的interface)：
 
@@ -5038,7 +5058,7 @@ type itab struct {
 	_type *_type // 同上的type
 	hash  uint32 // 对_type中的hash的拷贝，用于快速判断接口和具体类型能否转换
 	_     [4]byte
-	fun   [1]uintptr //fun在栈上偏移地址，因为fun都是指针，所以长度都是4个字节，找到fun的首地址后，每偏移4个地址便存储一个函数地址
+	fun   [1]uintptr //具体类型的实现接口的具体方法，fun在栈上偏移地址，因为fun都是指针，所以长度都是4个字节，找到fun的首地址后，每偏移4个地址便存储一个函数地址
 }
 ```
 
@@ -5048,7 +5068,7 @@ type itab struct {
 type interfacetype struct {
 	typ     _type
 	pkgpath name // 包信息
-	mhdr    []imethod // method slice，这里是排序后的，方便检测 struct是否继承了 interface
+	mhdr    []imethod // 原本接口的方法，method slice，这里是排序后的，方便检测 struct是否继承了 interface
 }
 ```
 
@@ -5062,6 +5082,59 @@ type imethod struct {
 ```
 
 
+
+### 接口转换
+
+由于iface包含了接口的类型 interfacetype 和实体类型的类型 _type。也就是说生成一个itab同时需要接口的类型和实体的类型
+
+当判定一种类型是否满足某个接口时，go使用类型的方法集和接口所需要的方法集进行匹配，完全包含接口的方法集就认为实现了该接口
+
+```go
+r.tab = getitab(inter, tab._type, false)
+
+func getitab(inter *interfacetype, typ *_type, canfail bool) *itab {
+    // ……
+    // 根据 inter, typ 计算出 hash 值
+    h := itabhash(inter, typ)
+    // look twice - once without lock, once with.
+    // common case will be no lock contention.
+    var m *itab
+    var locked int
+    for locked = 0; locked < 2; locked++ {
+        if locked != 0 {
+            lock(&ifaceLock)
+        }
+        // 遍历哈希表的一个 slot
+        for m = (*itab)(atomic.Loadp(unsafe.Pointer(&hash[h]))); m != nil; m = m.link {
+            // 如果在 hash 表中已经找到了 itab（inter 和 typ 指针都相同）
+            if m.inter == inter && m._type == typ {
+                // ……
+                if locked != 0 {
+                    unlock(&ifaceLock)
+                }
+                return m
+            }
+        }
+    }
+    // 在 hash 表中没有找到 itab，那么新生成一个 itab
+    m = (*itab)(persistentalloc(unsafe.Sizeof(itab{})+uintptr(len(inter.mhdr)-1)*sys.PtrSize, 0, &memstats.other_sys))
+    m.inter = inter
+    m._type = typ
+    // 添加到全局的 hash 表中
+    additab(m, true, canfail)
+    unlock(&ifaceLock)
+    if m.bad {
+        return nil
+    }
+    return m
+}
+```
+
+
+
+getitab 函数会根据 `interfacetype` 和 `_type` 去全局的 itab 哈希表中查找，如果能找到，则直接返回；否则，会根据给定的 `interfacetype` 和 `_type` 新生成一个 `itab`，并插入到 itab 哈希表，这样下一次就可以直接拿到 `itab`
+
+这里查找了两次，并且第二次上锁了，这是因为如果第一次没找到，在第二次仍然没有找到相应的 `itab` 的情况下，需要新生成一个，并且写入哈希表，因此需要加锁。这样，其他协程在查找相同的 `itab` 并且也没有找到时，第二次查找时，会被挂住，之后，就会查到第一个协程写入哈希表的 `itab`
 
 
 
@@ -5832,6 +5905,37 @@ func main() {
 	fmt.Println("解码得：", decMsg2)
 }
 ```
+
+
+
+## 5. Context
+
+`Context` 是一个接口，定义了 4 个方法，它们都是`幂等`的。也就是说连续多次调用同一个方法，得到的结果都是相同的。
+
+```go
+type Context interface {
+    // 当 context 被取消或者到了 deadline，返回一个被关闭的 channel
+    Done() <-chan struct{}
+    // 在 channel Done 关闭后，返回 context 取消原因
+    Err() error
+    // 返回 context 是否会被取消以及自动取消时间（即 deadline）
+    Deadline() (deadline time.Time, ok bool)
+    // 获取 key 对应的 value
+    Value(key interface{}) interface{}
+}
+```
+
+- `Done()` 返回一个 channel，可以表示 context 被取消的信号：当这个 channel 被关闭时，说明 context 被取消了。注意，这是一个只读的channel。 我们又知道，读一个关闭的 channel 会读出相应类型的零值。并且源码里没有地方会向这个 channel 里面塞入值。换句话说，这是一个 `receive-only` 的 channel。因此在子协程里读这个 channel，除非被关闭，否则读不出来任何东西。也正是利用了这一点，子协程从 channel 里读出了值（零值）后，就可以做一些收尾工作，尽快退出。
+
+- `Err()` 返回一个错误，表示 channel 被关闭的原因。例如是被取消，还是超时。
+
+- `Deadline()` 返回 context 的截止时间，通过此时间，函数就可以决定是否进行接下来的操作，如果时间太短，就可以不往下做了，否则浪费系统资源。当然，也可以用这个 deadline 来设置一个 I/O 操作的超时时间。
+
+- `Value()` 获取之前设置的 key 对应的 value。
+
+
+
+
 
 
 
