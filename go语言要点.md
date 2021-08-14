@@ -5933,6 +5933,79 @@ type Context interface {
 
 - `Value()` 获取之前设置的 key 对应的 value。
 
+### Context的作用
+
+在 Go 的 server 里，通常每来一个请求都会启动若干个 goroutine 同时工作：有些去数据库拿数据，有些调用下游接口获取相关数据……
+
+![request](picture/go语言要点/e5e80e875d3484ec90d14165cf40f861.png)
+
+这些 goroutine 需要共享这个请求的基本数据，例如登陆的 token，处理请求的最大超时时间（如果超过此值再返回数据，请求方因为超时接收不到）等等。当请求被取消或是处理时间太长，这有可能是使用者关闭了浏览器或是已经超过了请求方规定的超时时间，请求方直接放弃了这次请求结果。这时，所有正在为这个请求工作的 goroutine 需要快速退出，因为它们的“工作成果”不再被需要了。在相关联的 goroutine 都退出后，系统就可以回收相关的资源。
+
+context 包就是为了解决上面所说的这些问题而开发的：在 一组 goroutine 之间传递共享的值、取消信号、deadline……
+
+![img](picture/go语言要点/6d1b552b07ca2769a50c31a9446e3afa.png)
+
+
+
+**传递共享的数据：**
+
+对于 Web 服务端开发，往往希望将一个请求处理的整个过程串起来，这就非常依赖于 Thread Local（对于 Go 可理解为单个协程所独有） 的变量，而在 Go 语言中并没有这个概念，因此需要在函数调用的时候传递 context。
+
+
+
+**取消goroutine：**
+
+如果需要实现“取消”功能，并且在不了解 context 功能的前提下，可能会这样做：给函数增加一个指针型的 bool 变量，在 for 语句的开始处判断 bool 变量是否由 true 变为 false，如果改变，则退出循环
+
+上面给出的简单做法，可以实现想要的效果，没有问题，但是并不优雅，并且一旦协程数量多了之后，并且各种嵌套，就会很麻烦。优雅的做法，自然就要用到 context。
+
+```go
+func main(){
+    ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+    go Perform(ctx)
+    // ……
+    // app 端返回页面，调用cancel 函数
+    cancel()
+}
+
+func Perform(ctx context.Context) {
+    for {
+        calculatePos()
+        sendResult()
+        select {
+        case <-ctx.Done():
+            // 被取消，直接返回
+            return
+        case <-time.After(time.Second):
+            // block 1 秒钟 
+        }
+    }
+}
+```
+
+
+
+### Context.Value的查找过程
+
+通过层层传递 context，最终形成这样一棵树：
+
+![img](picture/go语言要点/c76997f2936b84c36848f9ac7efb020f.png)
+
+
+
+和链表有点像，只是它的方向相反：Context 指向它的父节点，链表则指向下一个节点。通过 WithValue 函数，可以创建层层的 valueCtx，存储 goroutine 间可以共享的变量。
+
+取值的过程，实际上是一个递归查找的过程：
+
+```go
+func (c *valueCtx) Value(key interface{}) interface{} {
+    if c.key == key {
+        return c.val
+    }
+    return c.Context.Value(key)
+}
+```
+
 
 
 
@@ -7180,4 +7253,14 @@ Go调度在go1.12实现了抢占，应该更精确的称为**请求式抢占**�
 2. G运行时间超过10ms
 
 调度器在启动的时候会启动一个单独的线程`sysmon`，它负责所有的监控工作，其中一项就是抢占，发现满足抢占条件的G时，就发出抢占请求
+
+
+
+## 5. goroutine栈切换
+
+![img](picture/go语言要点/58b2f4d73241425cf979ab0db3a4f838.png)
+
+
+
+`g0` 栈用于执行调度器的代码，执行完之后，要跳转到执行用户代码的地方，如何跳转？这中间涉及到栈和寄存器的切换。要知道，函数调用和返回主要靠的也是 CPU 寄存器的切换。`goroutine` 的切换和此类似。
 
