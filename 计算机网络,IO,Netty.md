@@ -1169,7 +1169,7 @@ TCP不允许已分配的缓存溢出，也就是说： $LastByteRcvd - LastByteR
 
 初始的时候 $rwnd = RcvBuffer$ ，这个值在握手的时候会传递给对方
 
-![滑动窗口](https://s3.ax1x.com/2020/11/13/D9UDDH.png)
+![滑动窗口](picture/计算机网络,IO,Netty/滑动窗口.png)
 
 **流量控制**就是为了控制对方的发送速率，保证接收方来得及接收
 通过调节接收方发送的窗口字段来控制发送方的窗口大小，从而影响发送方的发送速率。窗口为0则发送方不能发送数据
@@ -2292,7 +2292,35 @@ IO过程分为两步：
 
 
 
-Unix 有五种 I/O 模型：
+### socket套接字
+
+![image-20210814221642027](picture/计算机网络,IO,Netty/image-20210814221642027.png)
+
+普通文件对应到一个路径
+
+socket文件对应到一个端口
+
+对socket文件的读写操作就相当于是对网络连接的IO操作
+
+
+
+**socket还分为监听套接字和普通套接字**：
+
+监听套接字是由`listen()`把socket fd转化而成
+
+监听套接字不走数据流，只管连接的建立。accept将从全连接队列获取一个三次握手完成后的socket
+
+对于连接套接字而言，**可读事件就是全连接队列非空或者连接被关闭**
+
+对于数据类型套接字而言，可读写事件就是 sk buffer 有可读写的数据或者连接被关闭
+
+
+
+**vfs 层用的时候给 inode 字段的地址，socket 层的时候给 socket 字段的地址。不同抽象层面对于同一个内存块的理解不同，强制转化类型，然后各自使用**，这样就实现了对socket的文件抽象
+
+![img](picture/计算机网络,IO,Netty/v2-f4d77be89ce5188bde804ebb0fd51594_720w.jpg)
+
+
 
 ### 8.1.1 BIO和Socket编程
 
@@ -2333,13 +2361,11 @@ linux4.9版本内核可以避免这种情况，客户端的connect()系统调用
 
 
 
-
-
 ~~~c
 // domain参数传入通信域ipv4/ipv6/本地socket  type表示协议TCP/UDP   返回值是创建的套接字的文件描述符，失败则为-1
 int socket(int domain, int type, int protocol);
 
-// 将socket的文件描述符socketfd和ip和端口进行绑定，这样才能使socket监听该地址和端口
+// 检查端口有没有被占用，然后将socket的文件描述符socketfd和ip和端口进行绑定，这样才能使socket监听该地址和端口
 int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 
 // listen针对服务器，listen函数将服务器套接字变成被动监听的状态，等待客户端连接
@@ -2510,6 +2536,30 @@ DESCRIPTION
 
 windows的IOCP是内核有线程，负责拷贝到程序的内存空间，不需要程序自己去读取IO，是异步IO
 
+
+
+最朴实的方式自己实现多路复用：**多路复用就是用一个线程处理多个句柄**嘛，如下：
+
+```
+while True:
+    for each 句柄数组 {
+        read/write(fd, /* 参数 */)
+    }
+    sleep(1s)
+```
+
+只要使用非阻塞的fd进行read/write就不会产生阻塞了，否则程序可能会卡死在第三行
+
+这种方式存在的问题是：while循环每次都要睡，吞吐能力极差！不睡的话又及其浪费cpu！
+
+我们的目标是，这一个**线程要把所有的时间都用在处理句柄的IO上，不能有空转，sleep的时间浪费**，这种需求只能靠**内核**提供的机制来满足
+
+
+
+Linux提供了三种多路复用器：select（垃圾）-> poll（小垃圾） -> epoll (牛逼)
+
+这三种多路复用器都可以管理fd的可读写时间，在**所有fd不可读不可写的时候，可以阻塞线程，切走cpu。fd一旦有情况，能够唤醒线程**
+
 ### 8.2.1 select
 ~~~c
 //每次只需要调用select，把fd_set文件描述符集传给内核
@@ -2645,23 +2695,27 @@ int epoll_create(int size);
 		/*    struct eventpoll{
 		 *	  	struct rb_root rbr;      // 红黑树的根节点，红黑树存储了所有添加到epoll的需要监控的事件
 		 *	  	struct list_head rdlist; // 双链表存放着将要通过epoll_wait返回给用户的满足条件的文件描述符
-		 */   }
-		
+		 *   }
+		 */
 //传入epoll的文件描述符epfd和要注册的文件描述符fd，向内核注册文件描述符。
 //op参数表示添加、删除、修改对fd的监听事件，event是传入的监听事件
 int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
 
 //每次循环调用的是epoll_wait，内核无需遍历fds，内核通过中断事件机制把有事件的fd放入到相应的就绪链表。
+//没有时间的时候开睡，让出cpu，有事的时候就会被唤醒
 //epoll_wait返回就绪链表的文件描述符个数(事件数量)，同时将就绪链表中的事件复制到用户态的events数组中。
 //最多返回maxevents个事件
 int epoll_wait(int epfd, struct epoll_event * events, int maxevents, int timeout);
 ~~~
 
 ![NIO多路复用epoll模型](picture/计算机网络,IO,Netty/DtcYo4.png)
-- `epoll_ctl()` 用于**向内核注册新的socket文件描述符**或者是改变某个文件描述符的状态。已注册的描述符在内核中会被维护在一棵**红黑树**上，重复添加的事件可以通过红黑树高效的识别出来。**所有添加到epoll的事件都会与设备(网卡)驱动建立回调关系**。当某个事件就绪时，就会调用这个`回调函数`，把发生事件的fd加入到对应事件的`就绪链表`中管理，进程调用 `epoll_wait()` 便可以得到就绪链表的fd。
+
+epoll高效的秘诀：红黑树，回调唤醒，就绪链表
+
+- `epoll_ctl()` 用于**向内核注册新的socket文件描述符**或者是改变某个文件描述符的状态。已注册的描述符在内核中会被维护在一棵**红黑树**上，重复添加的事件可以通过红黑树高效的识别出来（**增删改fd都非常快**，就算不断的增删改epoll池的fd，也能保持非常稳定的查找性能）。**所有添加到epoll的事件都会与设备(网卡)驱动建立回调关系**。当某个事件就绪时，就会调用这个`回调函数`，把发生事件的fd加入到对应事件的`就绪链表`中管理，并且**唤醒阻塞在 `epoll_wait()` 的线程**（转为就绪态等待内核调度） 
 - **内核无需遍历fds**，内核通过`中断事件机制`，调用`回调函数`，把有事件的fd放入到就绪链表
 - 从上面的描述可以看出，**epoll 只需要在epoll_ctl时将描述符从进程缓冲区向内核缓冲区拷贝一次**，并且进程**不需要通过轮询来获得事件完成的描述符**。
-- `epoll_wait()` 通过检查链表rdlist看是否有事件发生，即检查是否有epitem元素，如果rdlist不空，就把就绪的事件复制到用户态的`events`数组中，同时函数返回事件的数量
+- `epoll_wait()` 阻塞调用，通过检查就绪链表rdlist看是否有事件发生，即检查是否有epitem元素，如果rdlist不空，就把就绪的事件复制到用户态的`events`数组中，同时函数返回事件的数量
 - epoll 仅适用于 Linux，跨平台性不好
 - epoll 比 select 和 poll 更加灵活而且没有描述符数量限制。
 - epoll 对多线程编程更有友好，一个线程调用了 epoll_wait() 另一个线程关闭了同一个描述符也不会产生像 select 和 poll 的不确定情况。
