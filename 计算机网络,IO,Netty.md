@@ -1268,7 +1268,11 @@ https://blog.csdn.net/caoshangpa/article/details/51530685
 
 **TCP 中已有 SO_KEEPALIVE 选项，为什么还要在应用层加入心跳包机制？**  
 
-主要是因为 TCP 协议中的 SO_KEEPALIVE 有几个致命的缺陷：
+tcp的keepalive机制用于在双方长时间未通讯时，探测对方是否还活着。如果对方还活着，就会发送响应，收到响应后就刷新保活定时器。如果没收到响应，就会间隔一定事件后重发，直到收到响应，或者探测次数达到上限则认为对端不可达，将连接关闭。在探测过程中，对端主要处于下面四种状态之一：
+
+<img src="picture/计算机网络,IO,Netty/tcp_keepalive.jpg" alt="tcp_keepalive" style="zoom:67%;" />
+
+应用层加入心跳主要是因为 TCP 协议中的 SO_KEEPALIVE 有几个致命的缺陷：
 
 1. keepalive 只能检测连接是否存活，不能检测连接是否可用。比如服务器因为负载过高导致无法响应请求但是双方的连接仍然存在，此时 keepalive 无法判断该连接是否可用。
 
