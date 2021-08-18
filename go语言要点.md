@@ -2375,6 +2375,91 @@ fatal error: concurrent map iteration and map write
 
 
 
+### sync.map
+
+[根据拓扑图理解golang的sync.Map工作原理](https://segmentfault.com/a/1190000020946989)
+
+<img src="picture/go语言要点/sync.map结构.png" alt="sync.map结构" style="zoom: 67%;" />
+
+```go
+type Map struct {
+    //互斥锁，用于锁定dirty map
+    mu Mutex    
+    
+    //优先读map,支持原子操作，注释中有readOnly不是说read是只读，而是它的结构体。read实际上有写的操作
+    read atomic.Value 
+    
+    // dirty是一个当前最新的map，允许读写，会加锁
+    dirty map[interface{}]*entry 
+    
+    // 主要记录read读取不到数据加锁读取read map以及dirty map的次数，当misses等于dirty的长度时，会将dirty复制到read
+    misses int 
+}
+
+// readOnly 主要用于存储，通过原子操作存储在 Map.read 中元素。
+type readOnly struct {
+    // read的map, 用于存储所有read数据
+    m       map[interface{}]*entry
+    
+    // 如果数据在dirty中但没有在read中，该值为true,作为修改标识
+    amended bool 
+}
+
+// entry 为 Map.dirty 的具体map值
+type entry struct {
+    // nil: 表示为被删除，调用Delete()可以将read map中的元素置为nil
+    // expunged: 也是表示被删除，但是该键只在read而没有在dirty中，这种情况出现在将read复制到dirty中，即复制的过程会先将nil标记为expunged，然后不将其复制到dirty
+    //  其他: 表示存着真正的数据
+    p unsafe.Pointer // *interface{}
+}
+```
+
+<img src="picture/go语言要点/sync.map.png" alt="sync.map" style="zoom: 80%;" />
+
+
+
+sync.Map的原理很简单，使用了空间换时间策略，通过冗余的两个数据结构(read、dirty),实现加锁对性能的影响。
+
+通过引入两个map将读写分离到不同的map，其中**read map提供并发读和已存元素原子写**，而**dirty map则负责读写**。
+
+这样**read map就可以在不加锁的情况下进行并发读取**,当read map中没有读取到值时,再**加锁进行后续读取,并累加未命中数**。
+
+当未命中数大于等于dirty map长度,将dirty map上升为read map。
+
+从结构体的定义可以发现，虽然引入了两个map，但是底层数据存储的是指针，指向的是同一份值。
+
+
+
+在新增的时候，分为四种情况：
+
+1. key原先就存在于`read`中，获取key所对应内存地址，**原子性修改**
+2. key存在，但是key所对应的值被标记为 expunged，解锁，解除标记，并更新dirty中的key，与read中进行同步，然后修改key对应的值
+3. read中没有key，但是dirty中存在这个key，直接上锁修改dirty中key的值
+4. read和dirty中都没有值，先判断自从read上次同步dirty的内容后有没有再修改过dirty的内容，没有的话(`readOnly.amend=false`)，先同步read和dirty的值，然后添加新的key value到dirty上面
+
+关于第四点，因为 read 同步 dirty 数据的时候，是直接把 dirty 指向 map 的指针交给了 read.m，然后将 dirty的指针设置为nil，所以同步之后 dirty就是nil，所以还需要 复制 read 到 dirty
+
+
+
+删除的时候：
+
+1. read中没有，且Map存在修改，则尝试删除dirty中的map中的key
+
+2. read中没有，且Map不存在修改，那就是没有这个key，无需操作
+3. read中有，尝试**将key对应的值设置为nil**，后面读取的时候就知道被删了，因为dirty中map的值跟read的map中的值指向的都是同一个地址空间，所以，修改了read也就是修改了dirty
+
+
+
+range遍历的时候：
+
+遍历的逻辑就比较简单了，Map只有两种状态，被修改过和没有修改过
+
+修改过：将dirty的指针交给read，read就是最新的数据了，然后遍历read的map
+
+没有修改过：遍历read的map就好了
+
+
+
 ## 4. 结构体
 
 ```go
