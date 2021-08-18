@@ -6506,6 +6506,424 @@ func (c *valueCtx) Value(key interface{}) interface{} {
 
 # 十二、 IO
 
+Go 基于 I/O multiplexing 和 goroutine scheduler 构建了一个简洁而高性能的原生网络模型(基于 Go 的 I/O 多路复用 `netpoller` )，提供了 `goroutine-per-connection` 这样简单的网络编程模式。在这种模式下，开发者 **使用的是同步的模式去编写异步的逻辑**，极大地降低了开发者编写网络应用时的负担，且借助于 Go runtime scheduler 对 goroutines 的高效调度，这个原生网络模型不论从适用性还是性能上都足以满足绝大部分的应用场景。
+
+事实上 `Go netpoller` 底层就是基于 `epoll(Linux)`/kqueue(freeBSD)/iocp(Windows) 这些 I/O 多路复用技术来做封装的，最终暴露出 `goroutine-per-connection` 这样的极简的开发模式给使用者
+
+
+
+IO多路复用：所谓 I/O 多路复用指的就是 `select/poll/epoll` 这一系列的多路选择器：支持 **单一线程同时监听多个文件描述符**（I/O 事件），阻塞等待，并在其中某个文件描述符可读写时收到通知。 I/O 复用其实复用的不是 I/O 连接，而是复用线程，让一个 thread of control 能够处理多个连接（I/O 事件）
+
+
+
+## 1. 基本原理
+
+> Go netpoller 通过在底层对 `epoll/kqueue/iocp` 的封装，从而实现了使用 **同步编程模式达到异步执行的效果**。
+>
+> 总结来说，所有的网络操作都以网络描述符 netFD 为中心实现。netFD 与底层 PollDesc 结构绑定
+>
+> 当在一个 netFD 上读写遇到 EAGAIN 错误时，就 **将当前 goroutine 存储到这个 netFD 对应的 PollDesc 中，同时调用 gopark 把当前 goroutine 给 park 住**，直到这个 netFD 上再次发生读写事件，才将此 goroutine 给 ready 激活重新运行。显然，在底层通知 goroutine 再次发生读写等事件的方式就是 epoll/kqueue/iocp 等事件驱动机制。
+
+
+
+## 2. 数据结构
+
+### netFD 和 poll.FD
+
+```go
+// Network file descriptor.
+type netFD struct {
+    pfd poll.FD
+
+    // immutable until Close
+    family      int
+    sotype      int
+    isConnected bool // handshake completed or use of association with peer
+    net         string
+    laddr       Addr  // 连接的两个地址
+    raddr       Addr
+}
+
+// FD 是文件描述符的结构体
+type FD struct {
+    // Lock sysfd and serialize access to Read and Write methods.
+    fdmu fdMutex
+
+    // System file descriptor. Immutable until Close.
+    Sysfd int
+
+    // I/O poller.
+    pd pollDesc
+
+    // Writev cache.
+    iovecs *[]syscall.Iovec
+
+    // Semaphore signaled when file is closed.
+    csema uint32
+
+    // Non-zero if this file has been set to blocking mode.
+    isBlocking uint32
+
+    // Whether this is a streaming descriptor, as opposed to a
+    // packet-based descriptor like a UDP socket. Immutable.
+    IsStream bool
+
+    // Whether a zero byte read indicates EOF. This is false for a
+    // message based socket connection.
+    ZeroReadIsEOF bool
+
+    // Whether this is a file rather than a network socket.
+    isFile bool
+}
+```
+
+
+
+### pollDesc
+
+pollDesc 是底层 **事件驱动** 的封装，`netFD` 通过它来完成各种IO相关的操作，定义如下：
+
+```go
+type pollDesc struct {
+    runtimeCtx uintptr
+}
+
+// 具体定义在runtime.pollDesc
+type pollDesc struct {
+    link *pollDesc // in pollcache, protected by pollcache.lock
+
+    // The lock protects pollOpen, pollSetDeadline, pollUnblock and deadlineimpl operations.
+    // This fully covers seq, rt and wt variables. fd is constant throughout the PollDesc lifetime.
+    // pollReset, pollWait, pollWaitCanceled and runtime·netpollready (IO readiness notification)
+    // proceed w/o taking the lock. So closing, everr, rg, rd, wg and wd are manipulated
+    // in a lock-free way by all operations.
+    // NOTE(dvyukov): the following code uses uintptr to store *g (rg/wg),
+    // that will blow up when GC starts moving objects.
+    lock    mutex // protects the following fields
+    fd      uintptr
+    closing bool
+    everr   bool    // marks event scanning error happened
+    user    uint32  // user settable cookie
+    rseq    uintptr // protects from stale read timers
+    rg      uintptr // pdReady, pdWait, G waiting for read or nil
+    rt      timer   // read deadline timer (set if rt.f != nil)
+    rd      int64   // read deadline
+    wseq    uintptr // protects from stale write timers
+    wg      uintptr // pdReady, pdWait, G waiting for write or nil
+    wt      timer   // write deadline timer
+    wd      int64   // write deadline
+}
+```
+
+其中 `rg` 和 `wg`，是两个万能指针，取值分别是 `pdReady, pdWait, 等待fd就绪的 g， nil 等`，他们是实现唤醒 goroutine 的关键
+
+`runtime.pollDesc` 包含自身类型的指针 `link` ，用来保存下一个 runtime.pollDesc 的地址，实现链表
+
+所有的 runtime.pollDesc 保存在 `runtime.pollCache` 结构体中，定义如下：
+
+```go
+type pollCache struct {
+   lock  mutex
+   first *pollDesc
+   // PollDesc objects must be type-stable,
+   // because we can get ready notification from epoll/kqueue
+   // after the descriptor is closed/reused.
+   // Stale notifications are detected using seq variable,
+   // seq is incremented when deadlines are changed or descriptor is reused.
+}
+```
+
+runtime.pollCache 是一个在 runtime 包中的全局变量，用于缓存
+
+Go runtime 会在调用 `poll_runtime_pollOpen` 往 epoll 实例注册 fd 之时首次调用 `runtime.pollCache.alloc`方法时批量初始化大小 4KB 的 `runtime.pollDesc` 结构体的链表，初始化过程中会调用 `runtime.persistentalloc` 来为这些数据结构分配不会被 GC 回收的内存，确保这些数据结构只能被 `epoll`和`kqueue` 在内核空间去引用。
+
+再往后每次调用这个方法则会先判断链表头是否已经分配过值了，若是，则直接返回表头这个 `pollDesc`，这种批量初始化数据进行缓存而后每次都直接从缓存取数据的方式是一种很常见的性能优化手段，在这里这种方式可以有效地提升 netpoller 的吞吐量。
+
+
+
+## 3. 原理解析
+
+[从源代码角度看epoll在Go中的使用（一）](https://segmentfault.com/a/1190000021812996)
+
+[Go netpoller 原生网络模型之源码全面揭秘 - SegmentFault 思否](https://segmentfault.com/a/1190000038690758?utm_source=sf-similar-article)
+
+
+
+### 阻塞
+
+重点看以下 FD 的 read：
+
+通过类似 `pollDesc.waitRead` 的 `pollDesc.waitWrite` 来 park 住 goroutine 直至期待的 I/O 事件发生才返回恢复执行
+
+```go
+func (fd *FD) Read(p []byte) (int, error) {
+    if err := fd.readLock(); err != nil {
+        return 0, err
+    }
+    defer fd.readUnlock()
+    if len(p) == 0 {
+        return 0, nil
+    }
+    if err := fd.pd.prepareRead(fd.isFile); err != nil {
+        return 0, err
+    }
+    if fd.IsStream && len(p) > maxRW {
+        p = p[:maxRW]
+    }
+    for {
+        // 尝试从该 socket 读取数据，因为 socket 在被 listener accept 的时候设置成
+        // 了非阻塞 I/O，所以这里同样也是直接返回，不管有没有可读的数据
+        n, err := syscall.Read(fd.Sysfd, p)
+        if err != nil {
+            n = 0
+            // err == syscall.EAGAIN 表示当前没有期待的 I/O 事件发生，也就是 socket 不可读
+            if err == syscall.EAGAIN && fd.pd.pollable() {
+                // 如果当前没有发生期待的 I/O 事件，那么 waitRead 
+                // 会通过 park goroutine 让逻辑 block 在这里
+                if err = fd.pd.waitRead(fd.isFile); err == nil {
+                    continue
+                }
+            }
+
+            // On MacOS we can see EINTR here if the user
+            // pressed ^Z.  See issue #22838.
+            if runtime.GOOS == "darwin" && err == syscall.EINTR {
+                continue
+            }
+        }
+        err = fd.eofError(n, err)
+        return n, err
+    }
+}
+```
+
+`pollDesc.waitRead` 内部调用了 `poll.runtime_pollWait` --> `runtime.poll_runtime_pollWait` 来达成无 I/O 事件时 park 住 goroutine 的目的：
+
+```go
+func poll_runtime_pollWait(pd *pollDesc, mode int) int {
+    ...
+    // 进入 netpollblock 并且判断是否有期待的 I/O 事件发生，这里的 for 循环是为了一直等到 io ready
+    for !netpollblock(pd, int32(mode), false) {
+        err = netpollcheckerr(pd, int32(mode))
+        if err != 0 {
+            return err
+        }
+    }
+    return 0
+}
+
+func netpollblock(pd *pollDesc, mode int32, waitio bool) bool {
+    // gpp 保存的是 goroutine 的数据结构 g，这里会根据 mode 的值决定是 rg 还是 wg，
+  // 前面提到过，rg 和 wg 是用来保存等待 I/O 就绪的 gorouine 的，后面调用 gopark 之后，
+  // 会把当前的 goroutine 的抽象数据结构 g 存入 gpp 这个指针，也就是 rg 或者 wg
+    gpp := &pd.rg
+    if mode == 'w' {
+        gpp = &pd.wg
+    }
+
+    // 这个 for 循环是为了等待 io ready 或者 io wait
+    for {
+        old := *gpp
+        // gpp == pdReady 表示此时已有期待的 I/O 事件发生，
+        // 可以直接返回 unblock 当前 goroutine 并执行响应的 I/O 操作
+        if old == pdReady {
+            *gpp = 0
+            return true
+        }
+        if old != 0 {
+            throw("runtime: double wait")
+        }
+        // 如果没有期待的 I/O 事件发生，则通过原子操作把 gpp 的值置为 pdWait 并退出 for 循环
+        if atomic.Casuintptr(gpp, 0, pdWait) {
+            break
+        }
+    }
+    
+    // waitio 此时是 false，netpollcheckerr 方法会检查当前 pollDesc 对应的 fd 是否是正常的，
+    // 通常来说  netpollcheckerr(pd, mode) == 0 是成立的，所以这里会执行 gopark 
+    // 把当前 goroutine 给 park 住，直至对应的 fd 上发生可读/可写或者其他『期待的』I/O 事件为止，
+    // 然后 unpark 返回，在 gopark 内部会把当前 goroutine 的抽象数据结构 g 存入
+    // gpp(pollDesc.rg/pollDesc.wg) 指针里，以便在后面的 netpoll 函数取出 pollDesc 之后，
+    // 把 g 添加到链表里返回，接着重新调度 goroutine
+    if waitio || netpollcheckerr(pd, mode) == 0 {
+        // 注册 netpollblockcommit 回调给 gopark，在 gopark 内部会执行它，保存当前 goroutine 到 gpp
+        gopark(netpollblockcommit, unsafe.Pointer(gpp), waitReasonIOWait, traceEvGoBlockNet, 5)
+    }
+    old := atomic.Xchguintptr(gpp, 0)
+    if old > pdWait {
+        throw("runtime: corrupted polldesc")
+    }
+    return old == pdReady
+}
+```
+
+
+
+### 唤醒
+
+> 首先，client 连接 server 的时候，listener 通过 accept 调用接收新 connection
+>
+> 每一个新 connection 都启动一个 goroutine 处理，accept 调用会把该 connection 的 fd 连带所在的 goroutine 上下文信息封装注册到 epoll 的监听列表里去
+>
+> 当 goroutine 调用 `conn.Read` 或者 `conn.Write` 等需要阻塞等待的函数时，会被 `gopark` 给封存起来并使之休眠，让 P 去执行本地调度队列里的下一个可执行的 goroutine
+>
+> 往后 Go scheduler 会在循环调度的 `runtime.schedule()` 函数以及 sysmon 监控线程中调用 `runtime.nepoll` 以获取可运行的 goroutine 列表并通过调用 injectglist 把剩下的 g 放入全局调度队列或者当前 P 本地调度队列去重新执行
+
+![netpoll](picture/go语言要点/netpoll.png)
+
+
+
+那么当 I/O 事件发生之后，netpoller 是通过什么方式唤醒那些在 I/O wait 的 goroutine 的？答案是通过 `runtime.netpoll`。
+
+`runtime.netpoll` 的核心逻辑是：
+
+1. 根据调用方的入参 delay，设置对应的调用 `epollwait` 的 timeout 值；
+2. 调用 `epollwait` 等待发生了可读/可写事件的 fd；
+3. 循环 `epollwait` 返回的事件列表，处理对应的事件类型， **组装可运行的 goroutine 链表并返回**。
+
+接下来将就绪的 goroutine 通过调用 `injectglist` 加入到全局调度队列或者 P 的本地调度队列中，启动 M 绑定 P 去执行。
+
+Go scheduler 的核心方法 `runtime.schedule()` 里会调用一个叫 `runtime.findrunable()` 的方法获取可运行的 goroutine 来执行，而在 `runtime.findrunable()` 方法里就调用了 `runtime.netpoll` 获取已就绪的 fd 列表对应的 goroutine 列表
+
+```go
+func netpoll(delay int64) gList {
+    ...
+retry:
+    // epollwait 超时等待就绪的 fd 读写事件
+    n := epollwait(epfd, &events[0], int32(len(events)), waitms)
+    if n < 0 {
+        ...
+        goto retry
+    }
+
+    // toRun 是一个 g 的链表，存储要恢复的 goroutines，最后返回给调用方
+    var toRun gList
+    for i := int32(0); i < n; i++ {
+        ev := &events[i]   // 拿到 events 数组
+        ...
+
+        // Go scheduler 在调用 findrunnable() 寻找 goroutine 去执行的时候，
+        // 在调用 netpoll 之时会检查当前是否有其他线程同步阻塞在 netpoll，
+        // 若是，则调用 netpollBreak 来唤醒那个线程，避免它长时间阻塞
+        if *(**uintptr)(unsafe.Pointer(&ev.data)) == &netpollBreakRd {
+            ...
+            if delay != 0 {
+                var tmp [16]byte
+                read(int32(netpollBreakRd), noescape(unsafe.Pointer(&tmp[0])), int32(len(tmp)))
+                atomic.Store(&netpollWakeSig, 0)
+            }
+            continue
+        }
+
+        // 判断发生的事件类型，读类型或者写类型等，然后给 mode 复制相应的值，
+    	// mode 用来决定从 pollDesc 里的 rg 还是 wg 里取出 goroutine
+        var mode int32
+        if ev.events&(_EPOLLIN|_EPOLLRDHUP|_EPOLLHUP|_EPOLLERR) != 0 {
+            mode += 'r'
+        }
+        if ev.events&(_EPOLLOUT|_EPOLLHUP|_EPOLLERR) != 0 {
+            mode += 'w'
+        }
+        if mode != 0 {
+            // 取出保存在 epollevent 里的 pollDesc
+            pd := *(**pollDesc)(unsafe.Pointer(&ev.data))
+            pd.everr = false
+            if ev.events == _EPOLLERR {
+                pd.everr = true
+            }
+            // 调用 netpollready，传入就绪 fd 的 pollDesc，
+            // 把 fd 对应的 goroutine 添加到链表 toRun 中
+            netpollready(&toRun, pd, mode)
+        }
+    }
+    return toRun
+}
+
+// netpollready 调用 netpollunblock 返回就绪 fd 对应的 goroutine 的抽象数据结构 g
+func netpollready(toRun *gList, pd *pollDesc, mode int32) {
+    var rg, wg *g
+    if mode == 'r' || mode == 'r'+'w' {
+        rg = netpollunblock(pd, 'r', true)
+    }
+    if mode == 'w' || mode == 'r'+'w' {
+        wg = netpollunblock(pd, 'w', true)
+    }
+    if rg != nil {
+        toRun.push(rg)
+    }
+    if wg != nil {
+        toRun.push(wg)
+    }
+}
+
+// netpollunblock 会依据传入的 mode 决定从 pollDesc 的 rg 或者 wg 取出当时 gopark 之时存入的
+// goroutine 抽象数据结构 g 并返回
+func netpollunblock(pd *pollDesc, mode int32, ioready bool) *g {
+    // mode == 'r' 代表当时 gopark 是为了等待读事件，而 mode == 'w' 则代表是等待写事件
+    gpp := &pd.rg
+    if mode == 'w' {
+        gpp = &pd.wg
+    }
+
+    for {
+        // 取出 gpp 存储的 g
+        old := *gpp
+        if old == pdReady {
+            return nil
+        }
+        if old == 0 && !ioready {
+            // Only set READY for ioready. runtime_pollWait
+            // will check for timeout/cancel before waiting.
+            return nil
+        }
+        var new uintptr
+        if ioready {
+            new = pdReady
+        }
+        // 重置 pollDesc 的 rg 或者 wg
+        if atomic.Casuintptr(gpp, old, new) {
+      // 如果该 goroutine 还是必须等待，则返回 nil
+            if old == pdWait {
+                old = 0
+            }
+            // 通过万能指针还原成 g 并返回
+            return (*g)(unsafe.Pointer(old))
+        }
+    }
+}
+
+// netpollBreak 往通信管道里写入信号去唤醒 epollwait
+func netpollBreak() {
+    // 通过 CAS 避免重复的唤醒信号被写入管道，
+    // 从而减少系统调用并节省一些系统资源
+    if atomic.Cas(&netpollWakeSig, 0, 1) {
+        for {
+            var b byte
+            n := write(netpollBreakWr, unsafe.Pointer(&b), 1)
+            if n == 1 {
+                break
+            }
+            if n == -_EINTR {
+                continue
+            }
+            if n == -_EAGAIN {
+                return
+            }
+            println("runtime: netpollBreak write failed with", -n)
+            throw("runtime: netpollBreak write failed")
+        }
+    }
+}
+```
+
+
+
+### 为什么 netpoll 一定要使用非阻塞IO
+
+为了避免让操作网络 I/O 的 goroutine 陷入到系统调用从而进入内核态，因为一旦进入内核态，整个程序的控制权就会发生转移(到内核)，不再属于用户进程了，那么也就无法借助于 Go 强大的 runtime scheduler 来调度业务程序的并发了；而有了 netpoll 之后，借助于非阻塞 I/O ，G 就再也不会因为系统调用的读写而 (长时间) 陷入内核态，当 G 被阻塞在某个 network I/O 操作上时，实际上它不是因为陷入内核态被阻塞住了，而是被 Go runtime 调用 gopark 给 park 住了，此时 G 会被放置到某个 wait queue 中，而 M 会尝试运行下一个 `_Grunnable` 的 G，如果此时没有 `_Grunnable` 的 G 供 M 运行，那么 M 将解绑 P，并进入 sleep 状态。当 I/O available，在 epoll 的 `eventpoll.rdr` 中等待的 G 会被放到 `eventpoll.rdllist` 链表里并通过 `netpoll` 中的 `epoll_wait` 系统调用返回放置到全局调度队列或者 P 的本地调度队列，标记为 `_Grunnable` ，等待 P 绑定 M 恢复执行
+
+
+
 
 
 
