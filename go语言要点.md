@@ -7545,9 +7545,9 @@ goroutine非常轻量，一个goroutine只占几KB，并且这几KB就足够goro
 
 G：goroutine
 
-M：worker thread， or machine，即OS线程
+M：worker thread， or machine，即OS线程（对应了创建的线程数）
 
-P：processor，处理器，包含了运行goroutine的资源
+P：processor，处理器，包含了运行goroutine的资源（对应了可以同时运行的线程总数的最大值）
 
 如果线程M想运行goroutine，必须先获取P，P中包含了可运行的G队列，从队列中获得G
 
