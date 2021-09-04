@@ -368,7 +368,7 @@ import (
 
 
 
-## 7. Web应用的部署与Docker
+## 7. Web应用的部署
 
 一个Go Web应用，除了可执行的二进制文件外，通常还会包含一些模板文件，如JavaScript、图片、样式表等静态文件
 
@@ -381,6 +381,8 @@ import (
 - **软件即服务**(SaaS)：Software-as-a-Service，软件开发、管理、部署都交给第三方，不需要关心技术问题，拿来即用，普通用户接触到的互联网服务几乎都是SaaS（购买使用开发好的程序，别人负责维护，我们只需要运营）
 
 ![img](picture/goWeb与微服务/v2-cd6d71e4481f5ffe432c6b1255ae601b_720w.jpg)
+
+
 
 ### 1. GoWeb应用部署到独立服务器
 
@@ -409,31 +411,63 @@ import (
 
 
 
-### 3.1 镜像images
+## 8. Docker基础
 
-镜像是一个**只读文件**，一个镜像是不会发生改变的。所有的变更都发生在顶层的可写层，下层的原始只读镜像不会改变
+### 1. 镜像images
 
-**镜像提供了容器运行的一些基础文件和配置文件，是容器启动的基础**
+镜像是一个**只读文件**，一个镜像是不会发生改变的。**所有的变更都发生在顶层的可写层**，下层的**原始只读镜像不会改变**
+
+镜像提供了容器运行的一些基础文件和配置文件，是容器启动的基础
+
+**所有的应用，直接打包docker镜像，就可以直接跑起来了**
+
+镜像从哪儿来？ 从远程从仓库有下载、自己打包
+
+
+
+`联合文件系统(UnionFs)`：Docker的镜像实际上是由一层一层的文件系统组成的，即UFS。UFS是分层、轻量级并且高性能的文件系统，支持对文件系统的修改作为一次提交来一层层的叠加，是 Docker 镜像的基础。镜像可以通过分层来进行继承，基于基础镜像可以之u走各种具体的应用镜像。
+
+下载镜像的时候，**某一层如果本地已经下载了，就不需要下载了，直接复用**
+
+![docker联合文件系统](picture/goWeb与微服务/docker联合文件系统.png)
+
+容器使用的内核还是宿主机的内核
+
+`pull`下来的是镜像层，是只读的，`run` 之后，就在容器层了，可以修改，也可以重新打包成镜像
+
+
 
 常用命令：
 
+```shell
+$ docker search     //查找镜像
+
+$ docker images 	//展示本地已有的镜像
+
+$ docker pull 		//镜像拉取
+
+$ docker run <ImageName>      //启动一个容器   
+    -d  后台运行  --rm  前台运行，一般用于测试，用完即删
+	-p OuterPort:InnerPort  #暴露端口
+	-v OuterDirectory:InnerDirectory   #挂载/映射
+	--name                  #指定容器名
+	-it                     #交互模式
+	
+$ docker exec -it <containerID> /bin/bash     //进入容器 (推荐的方式)
+$ docker attach <containerID> 				  //进入容器 (有问题：多窗口同时使用该命令进入容器时，所有窗口都会同步显示，一个窗口阻塞会导致全部阻塞，不适合生产环境)
+
+$ docker rmi      删除镜像
+
+$ docker push     docker镜像上传镜像库，便于共享
+
+$ docker commit <ContainerID> <TargetImageName>   //保存运行的容器为镜像 (原镜像是只读的，一切写操作都是基于container的，并不会同步到原镜像里)
+	-m="提交的描述信息"
+	-a="作者"
 ```
-docker images 	展示本地已有的镜像
-
-docker pull 		镜像拉取
-
-docker run 			启动一个容器
-
-docker rmi      删除镜像
-
-docker push     docker镜像上传镜像库，便于共享
-
-docker commit   用来保存运行的容器为镜像，因为镜像是只读的，一切写操作都是基于container的，并不会同步到镜像里，如果需要保存运行的容器为镜像，可使用此命令保存。
-```
 
 
 
-### 3.2 容器container
+### 2. 容器container
 
 **container是image运行时的一种状态**。**使用`docker run`时会根据指定镜像生成对应的container**，container是image最上面的一层，提供读写
 
@@ -441,37 +475,160 @@ docker commit   用来保存运行的容器为镜像，因为镜像是只读的�
 
 容器相关操作：
 
-```
-$ docker run -d ubuntu:14.04 /bin/bash  //使用镜像创建容器
-root@af8bae53bdd3:/# 进入容器内部
-$ docker ps  //查看容器
+```shell
+$ docker run -d ubuntu:14.04 /bin/bash  //启动容器
+
+$ docker ps  					//查看容器
 CONTAINER ID  IMAGE         COMMAND               CREATED        STATUS       PORTS NAME
 S1e5535038e28  ubuntu:14.04  /bin/bash    2 minutes ago Up 1 minute name
-$ docker stop   S1e5535038e28 //停止容器
-$ docker start   S1e5535038e28 //开始容器
-$ docker kill S1e5535038e28    //kill掉容器
+
+$ docker stop   S1e5535038e28 	//停止容器
+$ docker start   S1e5535038e28 	//开始容器
+$ docker kill S1e5535038e28    	//kill掉容器
 $ docker attach S1e5535038e28   //进入到容器内部
-$ docker ps    //查看运行中的容器
-$ docker commit  //将镜像保存为新容器
+$ docker ps    					//查看运行中的容器
+$ docker stats   				// 查看 CPU 状态   
+$ docker commit  				//将镜像保存为新容器
+$ docker inspect <ContainerID>  // 查看容器的信息（可以看到挂载等信息）
 ```
 
 
 
-### 3.3 仓库 docker hub
+### 3. 仓库 docker hub
 
 存放镜像的共享平台，类似于代码仓库，分为公共镜像和私有镜像
 
 命令：
 
-``` 
-docker pull
+``` shell
+$ docker pull
 
-docker push
+$ docker push
 
-docker login
+$ docker login
 
-docker search
+$ docker search
 ```
+
+
+
+### 4. 环境配置和可视化
+
+```shell
+$ docker  run -d --name elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" elasticsearch:7.6.2
+```
+
+暴露了两个端口，但是elasticsearch非常耗内存(1.x G)，启动之后直接卡了
+
+
+
+环境配置，增加内存限制：`-e ES_JAVA_OPTS="-Xms64m -Xmx512m"`
+
+```shell
+$ docker  run -d --name elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" -e ES_JAVA_OPTS="-Xms64m -Xmx512m"  elasticsearch:7.6.2
+```
+
+
+
+环境配置，MySQL配置密码：`-e MYSQL_ROOT_PASSWORD=123456`
+
+```shell
+$ docker  run -d --name mysql01 -p 3306:3306 -e MYSQL_ROOT_PASSWORD=123456 -v /home/mysql/conf:/etc/msyql/conf.d \
+-v /home/mysql/data:/var/lib/mysql mysql:5.7
+```
+
+
+
+可视化界面：`portainer、Rancher`
+
+```shell
+$ docker run -d -p 8088:9000 \
+--restart=always -v /var/run/docker.sock:/var/run/docker.sock --privileged=true portainer/portainer
+```
+
+
+
+### 5. 容器数据卷
+
+如果数据都在容器中，容器一旦删除，数据就丢失了，所以需要 **容器的数据可以持久化到本地**，即需要一种 **容器之间数据共享的技术**，将Docker容器中产生的数据 **同步** 到本地！
+
+这就是卷技术，**将容器内的目录挂载到宿主机上**
+
+也支持 **容器之间的数据共享**
+
+
+
+```shell
+$ docker run -it -v /home/ceshi:/home centos /bin/bash     # 将容器的 /home 目录 映射到 外部的 /home/ceshi 目录
+```
+
+
+
+数据同步是 **双向** 的。并且即使容器退出了，修改了宿主机目录的文件，再启动容器的时候依然会同步！！！
+
+通过容器卷技术，以后修改配置文件等只需要在外部，同时可以多个容器共享，不需要每个容器都进去修改了
+
+
+
+**指定路径挂载：** `-v 宿主机路径:容器内路径` 指定外部宿主机路径，进行指定路径挂载
+
+**具名挂载：** `-v 卷名:容器内路径` 不指定外部宿主机路径，只指定卷名，会进行具名挂载
+
+**匿名挂载：** `-v 容器内路径` 不指定外部宿主机路径，不指定卷名，会进行匿名挂载
+
+
+
+可以使用 `docker volume ls` 查看所有的挂载路径
+
+查看卷：`docker volume inspect 卷名`
+
+所有docker容器内的卷，没有指定目录的情况下都是挂载在 `/var/lib/docker/volumes/xxxxx/_data`
+
+
+
+#### 数据卷容器
+
+多个容器之间同步数据，被同步的容器就是数据卷容器
+
+例如下面：容器 docker02 和 docker03 去同步 docker01 的数据
+
+```shell
+$ docker run -it --name docker02 --volumes-from docker01 myCustomer/centos:1.0
+$ docker run -it --name docker03 --volumes-from docker01 myCustomer/centos:1.0
+```
+
+这时候他们只是挂载在了同一份宿主机的文件，即 `/var/lib/docker/volumes/xxxxx/_data`
+
+删除 docker01 不会导致 docker02 03的挂载变化，所以他们的数据不会被删除
+
+
+
+### 6. DockerFile
+
+DockerFile 就是用来构建 docker 镜像的构建文件！ 是命令文件
+
+通过这个命令文件(脚本)，可以生成镜像，镜像是一层一层的，脚本的每个命令都是一层
+
+```shell
+$ vim dockerfile1
+
+FROM cnetos
+
+VOLUME ["volume01", "volume02"]  # 构建Image的时候 直接指定匿名挂载
+
+CMD echo "----end----"
+CMD /bin/bash
+
+$ docker build -f dockerfile1 -t myCustomer/centos:1.0 ./    # 根据 dockerfile1 构建一个image，镜像自定义tag名为 myCustomer/centos:1.0，保存地址为当前目录
+```
+
+
+
+
+
+
+
+### 7. Docker网络
 
 
 
